@@ -2,8 +2,11 @@
 
 import hashlib
 import os
+import sys
 import zipfile
 from pathlib import Path
+
+_VERSION_MARKER_BLOCK = "heavy_core"
 
 
 def _cache_root() -> Path:
@@ -39,14 +42,29 @@ def _extract_jar_assets(jar_path: Path) -> Path:
     return target
 
 
+def _warn_if_version_mismatch(assets_root: Path) -> None:
+    marker = assets_root / "models" / "block" / f"{_VERSION_MARKER_BLOCK}.json"
+    if not marker.is_file():
+        print(
+            f"structura_rendering: WARNING: {assets_root} has no "
+            f"{_VERSION_MARKER_BLOCK} model (added in Minecraft 1.21) -- "
+            "these assets look older than the datapack's target version; "
+            "renders may not match what actually spawns in-game.",
+            file=sys.stderr,
+        )
+
+
 def minecraft_assets_root() -> Path:
     configured = os.environ.get("STRUCTURA_MINECRAFT_ASSETS")
     if configured:
         path = Path(configured).expanduser().resolve()
         if path.is_dir():
+            _warn_if_version_mismatch(path)
             return path
         if path.is_file() and path.suffix == ".jar":
-            return _extract_jar_assets(path)
+            extracted = _extract_jar_assets(path)
+            _warn_if_version_mismatch(extracted)
+            return extracted
         raise FileNotFoundError(
             f"STRUCTURA_MINECRAFT_ASSETS does not exist: {path} "
             "(point it at an assets/minecraft directory or a client .jar)",
@@ -56,6 +74,7 @@ def minecraft_assets_root() -> Path:
     for root in candidates:
         path = root / "assets" / "minecraft"
         if path.is_dir():
+            _warn_if_version_mismatch(path)
             return path
     return Path.cwd() / "assets" / "minecraft"
 

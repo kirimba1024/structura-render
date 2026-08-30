@@ -12,7 +12,7 @@ _VERSION_MARKER_BLOCK = "heavy_core"
 def _cache_root() -> Path:
     configured = os.environ.get("XDG_CACHE_HOME")
     base = Path(configured).expanduser() if configured else Path.home() / ".cache"
-    return base / "structura-rendering" / "jar-assets"
+    return base / "structura-render" / "jar-assets"
 
 
 def _extract_jar_assets(jar_path: Path) -> Path:
@@ -46,7 +46,7 @@ def _warn_if_version_mismatch(assets_root: Path) -> None:
     marker = assets_root / "models" / "block" / f"{_VERSION_MARKER_BLOCK}.json"
     if not marker.is_file():
         print(
-            f"structura_rendering: WARNING: {assets_root} has no "
+            f"structura_render: WARNING: {assets_root} has no "
             f"{_VERSION_MARKER_BLOCK} model (added in Minecraft 1.21) -- "
             "these assets look older than the datapack's target version; "
             "renders may not match what actually spawns in-game.",

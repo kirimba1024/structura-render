@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pyvista as pv
 
-from structura_structures import Structure
+from structura_core import Structure
 
 from .mesh import build_textured_meshes, flat_rgba, voxel_state
 from .textures import TextureBank

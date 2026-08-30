@@ -9,8 +9,8 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
 
-from structura_structures import AIR_NAMES, Structure
-from structura_structures.voxel import dilation
+from structura_core import AIR_NAMES, Structure
+from structura_core.voxel import dilation
 
 DIAGNOSTIC_CAVERN_RADIUS = 4.0
 

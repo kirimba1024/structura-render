@@ -1,8 +1,7 @@
-# structura-rendering
+# structura-render
 
-Renderer and 3D exporter for vanilla Minecraft Structure NBT, extracted from
-[Structura](https://github.com/kirimba1024/structura). It resolves real
-blockstate/model JSON into mesh geometry once and shares that geometry
+Renderer and 3D exporter for vanilla Minecraft Structure NBT. It resolves
+real blockstate/model JSON into mesh geometry once and shares that geometry
 between every output format, instead of guessing block shapes from a name.
 
 <p>
@@ -46,14 +45,14 @@ or an already-extracted `assets/minecraft` directory:
 
 ```bash
 export STRUCTURA_MINECRAFT_ASSETS="$HOME/Library/Application Support/minecraft/versions/1.21.1/1.21.1.jar"
-pip install 'git+https://github.com/kirimba1024/structura-structures.git'
+pip install 'git+https://github.com/kirimba1024/structura-core.git'
 pip install -e '.[usdz]'
 structura-render-hero structure.nbt preview.png
 ```
 
 **The version matters, not just "some Minecraft install."** This package
 targets Minecraft Java **1.21.1** specifically (see
-`structura_structures.version.JAVA_VERSION`); the asset layout changed
+`structura_core.version.JAVA_VERSION`); the asset layout changed
 significantly across versions (e.g. the pre/post-1.13 "flattening" of
 texture and blockstate paths), so pointing at a mismatched jar can silently
 resolve the wrong texture or geometry for a given block. On load, the
@@ -63,17 +62,16 @@ obviously-wrong version — but it can't detect every mismatch, so use 1.21.1.
 
 Neither this repository nor its releases contain any Mojang texture, model,
 or sound file. Minecraft's client assets are copyrighted and Mojang's EULA
-does not permit redistributing them, so `structura-rendering` never bundles
+does not permit redistributing them, so `structura-render` never bundles
 or vendors them — you always point it at your own licensed client via
 `STRUCTURA_MINECRAFT_ASSETS`, as above.
 
-A `.jar` is extracted once into `$XDG_CACHE_HOME/structura-rendering/jar-assets`
+A `.jar` is extracted once into `$XDG_CACHE_HOME/structura-render/jar-assets`
 (`~/.cache/...` if unset), keyed by its path, size and mtime, so different
 client versions and later runs against the same jar don't re-extract. Point
 at an `assets/minecraft` directory directly to skip that step entirely. When
 the environment variable is absent, the package searches parent folders and
 the current directory for `assets/minecraft`.
 
-`structura-structures` is private, so Git must be authenticated for the
-first install command. Use the lighter `hero` extra when USDZ export is not
-needed; plain projection rendering does not install PyVista or OpenUSD.
+Use the lighter `hero` extra when USDZ export is not needed; plain
+projection rendering does not install PyVista or OpenUSD.

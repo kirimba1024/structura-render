@@ -3,7 +3,7 @@
 import numpy as np
 import pyvista as pv
 
-from structura_structures import AIR_NAMES, Structure
+from structura_core import AIR_NAMES, Structure
 
 from .block_model import AXIS_VEC, block_elements, post_texture
 from .entity_shapes import entity_shape

@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, UsdUtils
 
-from structura_structures import Structure
+from structura_core import Structure
 
 from .mesh import CUBE_FACES, box_corners, build_textured_meshes, flat_rgba, shift_toward, voxel_state
 from .textures import TextureBank

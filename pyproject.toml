@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "structura-rendering"
+version = "0.1.0"
+description = "Minecraft block-model resolution, image rendering and USDZ export"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "structura-structures>=0.1.0,<0.2",
+  "numpy>=1.26,<3",
+  "Pillow>=11,<12",
+  "scipy>=1.13,<2",
+]
+
+[project.optional-dependencies]
+hero = ["pyvista>=0.46,<0.47"]
+usdz = ["pyvista>=0.46,<0.47", "usd-core>=26,<27"]
+
+[project.scripts]
+structura-render-projections = "structura_rendering.projections:main"
+structura-render-hero = "structura_rendering.hero:main"
+structura-export-usdz = "structura_rendering.usdz:main"
+structura-build-full-cube-list = "structura_rendering.build_full_cube_list:main"
+structura-build-opaque-blocks = "structura_rendering.build_opaque_blocks:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+structura_rendering = ["data/*.json"]
+
+[project.urls]
+Repository = "https://github.com/kirimba1024/structura-rendering"

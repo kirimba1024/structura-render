@@ -181,10 +181,23 @@ def compose(panels, output, caption=None):
     ]
     legend_height = 52
     caption_height = 22 if caption else 0
+    legend = [
+        (GLASS_DOME, "glass dome"),
+        (BUBBLE_AURA, "bubble aura"),
+        (CAVERN_AURA, "cavern aura"), (AURA, "aura"),
+        (ENVELOPE, "envelope"),
+        (POD_COLORS["minecraft:grass_block"], "pod grass"),
+        (POD_COLORS["minecraft:dirt"], "pod dirt"),
+        (POD_COLORS["minecraft:stone"], "pod stone"),
+    ]
+    measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    legend_width = gap + sum(
+        22 + measure.textlength(label) + 24 for _color, label in legend
+    )
     canvas = Image.new(
         "RGB",
         (
-            sum(widths) + gap * (columns + 1),
+            max(sum(widths) + gap * (columns + 1), int(legend_width) + gap),
             sum(rows) + gap * (row_count + 1) + legend_height + caption_height,
         ),
         (238, 240, 243),
@@ -198,15 +211,6 @@ def compose(panels, output, caption=None):
     draw = ImageDraw.Draw(canvas)
     if caption:
         draw.text((gap, 4), caption, fill=(60, 64, 72))
-    legend = [
-        (GLASS_DOME, "glass dome"),
-        (BUBBLE_AURA, "bubble aura"),
-        (CAVERN_AURA, "cavern aura"), (AURA, "aura"),
-        (ENVELOPE, "envelope"),
-        (POD_COLORS["minecraft:grass_block"], "pod grass"),
-        (POD_COLORS["minecraft:dirt"], "pod dirt"),
-        (POD_COLORS["minecraft:stone"], "pod stone"),
-    ]
     x, y = gap, canvas.height - 34
     for color, label in legend:
         draw.rectangle((x, y, x + 16, y + 16), fill=color)

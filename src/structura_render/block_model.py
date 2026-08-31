@@ -79,6 +79,8 @@ def resolve_model(name, depth=0):
 def resolve_texture(ref, textures, depth=0):
     if ref is None or depth > 10:
         return None
+    if isinstance(ref, dict):
+        return resolve_texture(ref.get("sprite"), textures, depth + 1)
     key = ref[1:] if ref.startswith("#") else ref
     if key in textures:
         return resolve_texture(textures[key], textures, depth + 1)

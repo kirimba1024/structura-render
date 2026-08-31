@@ -7,6 +7,17 @@ No fake textures, no hardcoded block shapes, no bundled game files. Point
 it at your own Minecraft client and get pixel-accurate PNGs and USDZ out
 the other end.
 
+**This isn't a lookup table of ~50 common blocks with guessed shapes.**
+The resolver walks the same blockstate → model → element → UV pipeline the
+Minecraft client itself uses, so it produces real geometry for the entire
+vanilla block set — stairs, slabs, doors, fences, cross-plants, redstone
+components, all of it — without a single per-block special case in the
+code. The only blocks that need individual handling are the handful vanilla
+itself renders outside the model system entirely (chest, skull/head,
+banner, decorated pot — real block-entity renderers, no JSON geometry
+exists for them to read), and those are the only hand-written exceptions
+in the whole project.
+
 <p>
   <img src="docs/screenshots/usdz-floating-island.png" width="49%" alt="USDZ export of a floating island structure, viewed in a 3D viewer">
   <img src="docs/screenshots/hero-render-detail.png" width="49%" alt="Close-up hero-render detail: windows, timber framing, flower pots">

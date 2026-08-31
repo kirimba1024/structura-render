@@ -70,16 +70,20 @@ in the whole project.
 
 ## Quick start
 
+No clone needed for either package, but `structura-core` isn't on PyPI yet,
+so `pip` can't resolve it as a transitive dependency — install it
+explicitly first, then `structura-render`:
+
 ```bash
 export STRUCTURA_MINECRAFT_ASSETS="$HOME/Library/Application Support/minecraft/versions/1.21.1/1.21.1.jar"
 pip install 'git+https://github.com/kirimba1024/structura-core.git'
-pip install -e '.[usdz]'
+pip install "structura-render[usdz] @ git+https://github.com/kirimba1024/structura-render.git"
 structura-render-hero structure.nbt preview.png
 ```
 
 Have a legacy `.schematic`/`.schem`/`.litematic` instead of Structure NBT?
-Install `pip install -e '.[legacy]'` and pass it straight in — no separate
-conversion step:
+Add the `legacy` extra (`[usdz,legacy]`) and pass it straight in — no
+separate conversion step:
 
 ```bash
 structura-render-hero house.schematic preview.png

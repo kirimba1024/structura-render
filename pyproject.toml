@@ -24,6 +24,7 @@ legacy = ["structura-core[legacy]>=0.1.0,<0.2"]
 structura-render-projections = "structura_render.projections:main"
 structura-render-hero = "structura_render.hero:main"
 structura-export-usdz = "structura_render.usdz:main"
+structura-package-usdz-variants = "structura_render.usdz_variants:main"
 structura-build-full-cube-list = "structura_render.build_full_cube_list:main"
 structura-build-opaque-blocks = "structura_render.build_opaque_blocks:main"
 

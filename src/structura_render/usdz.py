@@ -71,7 +71,7 @@ def add_flat_mesh(stage, root, name, points, faces, material, center):
     mesh.CreateFaceVertexIndicesAttr(indices)
     mesh.CreateSubdivisionSchemeAttr("none")
     mesh.CreateDoubleSidedAttr(True)
-    UsdShade.MaterialBindingAPI(mesh).Bind(material)
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
 
 
 def build_material(stage, root, texture_path, name="AtlasMaterial"):
@@ -86,7 +86,7 @@ def build_material(stage, root, texture_path, name="AtlasMaterial"):
 
     st_reader = UsdShade.Shader.Define(stage, material.GetPath().AppendPath("stReader"))
     st_reader.CreateIdAttr("UsdPrimvarReader_float2")
-    st_reader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+    st_reader.CreateInput("varname", Sdf.ValueTypeNames.String).Set("st")
     st_reader.CreateOutput("result", Sdf.ValueTypeNames.Float2)
 
     texture = UsdShade.Shader.Define(stage, material.GetPath().AppendPath("DiffuseTexture"))
@@ -153,7 +153,7 @@ def add_mesh(stage, root, name, points, faces, uv, material, center):
         "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex,
     )
     st.Set([Gf.Vec2f(float(c[0]), float(c[1])) for c in uv])
-    UsdShade.MaterialBindingAPI(mesh).Bind(material)
+    UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
     return mesh
 
 

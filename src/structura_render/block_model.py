@@ -1,17 +1,7 @@
-"""Generic vanilla block-model resolver: blockstate -> model -> parent chain,
-real elements/uv/rotation from assets/minecraft, no per-block guessing. This
-is the single source of block shape+texture-mapping for both render_hero.py
-(PyVista PNG) and export_usdz.py (USDZ) -- render only consumes its output,
-never re-derives geometry of its own for blocks this module can resolve.
-
-An element's own (non-blockstate) "rotation" -- a per-element tilt at an
-arbitrary angle, used for cross-plants, potted plants and coral fans -- is
-ignored rather than applied: the element renders at its un-tilted from/to.
-Fine for already-thin/degenerate elements (a coral fan's near-zero-height
-wafer, a plant's thin diagonal blade), which is what this ever appears on."""
+"""Resolve vanilla blockstate/model JSON into textured quads."""
 import json
+import math
 from functools import wraps
-from pathlib import Path
 
 from .assets import ASSETS
 
@@ -26,9 +16,24 @@ AXIS_VEC = {
 }
 VEC_AXIS = {v: k for k, v in AXIS_VEC.items()}
 
+FACE_CORNERS = {
+    "up": (4, 5, 6, 7), "down": (0, 1, 2, 3),
+    "north": (1, 0, 4, 5), "south": (3, 2, 6, 7),
+    "east": (2, 1, 5, 6), "west": (0, 3, 7, 4),
+}
+FACE_UV_BASIS = {
+    "up": ((1, 0, 0), (0, 0, 1)), "down": ((1, 0, 0), (0, 0, 1)),
+    "north": ((-1, 0, 0), (0, 1, 0)), "south": ((1, 0, 0), (0, 1, 0)),
+    "east": ((0, 0, -1), (0, 1, 0)), "west": ((0, 0, 1), (0, 1, 0)),
+}
+FACE_UV_PLANE = {
+    "up": (0, 2), "down": (0, 2),
+    "north": (0, 1), "south": (0, 1),
+    "east": (2, 1), "west": (2, 1),
+}
+
 _blockstate_cache = {}
 _model_cache = {}
-
 _RESOLUTION_ERRORS = (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError)
 
 
@@ -71,9 +76,10 @@ def resolve_model(name, depth=0):
         return {"elements": None, "textures": {}}
     parent = data.get("parent")
     base = resolve_model(parent, depth + 1) if parent else {"elements": None, "textures": {}}
-    textures = {**base["textures"], **data.get("textures", {})}
-    elements = data.get("elements", base["elements"])
-    return {"elements": elements, "textures": textures}
+    return {
+        "elements": data.get("elements", base["elements"]),
+        "textures": {**base["textures"], **data.get("textures", {})},
+    }
 
 
 def resolve_texture(ref, textures, depth=0):
@@ -84,9 +90,7 @@ def resolve_texture(ref, textures, depth=0):
     key = ref[1:] if ref.startswith("#") else ref
     if key in textures:
         return resolve_texture(textures[key], textures, depth + 1)
-    if not ref.startswith("#"):
-        return strip_ns(ref)
-    return None
+    return strip_ns(ref) if not ref.startswith("#") else None
 
 
 def matching_variant(variants, props):
@@ -99,26 +103,92 @@ def matching_variant(variants, props):
         for wanted, value in parsed
         if all(props.get(k) == v for k, v in wanted.items())
     ]
-    if matches:
-        return max(matches, key=lambda item: item[0])[1]
-    return parsed[0][1] if parsed else None
+    return max(matches, key=lambda item: item[0])[1] if matches else (parsed[0][1] if parsed else None)
 
 
-def rotate_point(x, y, z, x_deg, y_deg):
-    for _ in range(round(x_deg / 90) % 4):
-        y, z = 16 - z, y
-    for _ in range(round(y_deg / 90) % 4):
-        x, z = 16 - z, x
-    return x, y, z
+def condition_matches(condition, props):
+    if "OR" in condition:
+        return any(condition_matches(part, props) for part in condition["OR"])
+    if "AND" in condition:
+        return all(condition_matches(part, props) for part in condition["AND"])
+    return all(props.get(key) in str(wanted).split("|") for key, wanted in condition.items())
+
+
+def selected_models(blockstate, props):
+    if "variants" in blockstate:
+        entries = [matching_variant(blockstate["variants"], props)]
+    else:
+        entries = [
+            part["apply"] for part in blockstate.get("multipart", ())
+            if "when" not in part or condition_matches(part["when"], props)
+        ]
+    return [entry[0] if isinstance(entry, list) else entry for entry in entries if entry]
+
+
+def _rotate(point, origin, axis, degrees):
+    angle = math.radians(degrees)
+    cosine, sine = math.cos(angle), math.sin(angle)
+    x, y, z = (point[i] - origin[i] for i in range(3))
+    if axis == "x":
+        y, z = y * cosine - z * sine, y * sine + z * cosine
+    elif axis == "y":
+        x, z = x * cosine - z * sine, x * sine + z * cosine
+    else:
+        x, y = x * cosine - y * sine, x * sine + y * cosine
+    return x + origin[0], y + origin[1], z + origin[2]
+
+
+def rotate_vector(vector, x_deg, y_deg):
+    rotated = _rotate(vector, (0, 0, 0), "x", x_deg)
+    return tuple(round(v) for v in _rotate(rotated, (0, 0, 0), "y", y_deg))
 
 
 def rotate_direction(direction, x_deg, y_deg):
-    dx, dy, dz = AXIS_VEC[direction]
-    for _ in range(round(x_deg / 90) % 4):
-        dy, dz = -dz, dy
-    for _ in range(round(y_deg / 90) % 4):
-        dx, dz = -dz, dx
-    return VEC_AXIS[(dx, dy, dz)]
+    return VEC_AXIS[rotate_vector(AXIS_VEC[direction], x_deg, y_deg)]
+
+
+def rotate_element(point, rotation):
+    if not rotation:
+        return point
+    origin = rotation.get("origin", (8, 8, 8))
+    if "axis" not in rotation:
+        for axis in "xyz":
+            point = _rotate(point, origin, axis, rotation.get(axis, 0))
+        return point
+    axis, angle = rotation["axis"], rotation["angle"]
+    if rotation.get("rescale"):
+        scale = 1 / math.cos(math.radians(angle))
+        point = tuple(
+            origin[i] + (point[i] - origin[i]) * (1 if "xyz"[i] == axis else scale)
+            for i in range(3)
+        )
+    return _rotate(point, origin, axis, angle)
+
+
+def rotate_blockstate(point, x_deg, y_deg):
+    point = _rotate(point, (8, 8, 8), "x", x_deg)
+    return _rotate(point, (8, 8, 8), "y", y_deg)
+
+
+def box_corners(lo, hi):
+    return (
+        (lo[0], lo[1], lo[2]), (hi[0], lo[1], lo[2]),
+        (hi[0], lo[1], hi[2]), (lo[0], lo[1], hi[2]),
+        (lo[0], hi[1], lo[2]), (hi[0], hi[1], lo[2]),
+        (hi[0], hi[1], hi[2]), (lo[0], hi[1], hi[2]),
+    )
+
+
+def _neg(vector):
+    return tuple(-v for v in vector)
+
+
+def uvlock_quarters(direction, x_deg, y_deg):
+    world_direction = rotate_direction(direction, x_deg, y_deg)
+    u, v = (rotate_vector(axis, x_deg, y_deg) for axis in FACE_UV_BASIS[direction])
+    target_u, target_v = FACE_UV_BASIS[world_direction]
+    choices = ((u, v), (v, _neg(u)), (_neg(u), _neg(v)), (_neg(v), u))
+    return next((i for i, basis in enumerate(choices) if basis == (target_u, target_v)), 0)
 
 
 @safe
@@ -130,56 +200,51 @@ def post_texture(name):
 @safe
 def block_elements(name, props):
     blockstate = load_blockstate(name)
-    if blockstate is None or "variants" not in blockstate:
+    if blockstate is None:
         return None
-    entry = matching_variant(blockstate["variants"], props)
-    if isinstance(entry, list):
-        entry = entry[0]
-    if entry is None:
-        return None
-    model = resolve_model(entry["model"])
-    if not model["elements"]:
-        return None
-    x_deg, y_deg = entry.get("x", 0), entry.get("y", 0)
-    textures = model["textures"]
-
+    entries = selected_models(blockstate, props)
     result = []
-    for element in model["elements"]:
-        lo_raw, hi_raw = element["from"], element["to"]
-        corners = [
-            rotate_point(x, y, z, x_deg, y_deg)
-            for x in (lo_raw[0], hi_raw[0])
-            for y in (lo_raw[1], hi_raw[1])
-            for z in (lo_raw[2], hi_raw[2])
-        ]
-        lo = tuple(min(c[i] for c in corners) / 16 for i in range(3))
-        hi = tuple(max(c[i] for c in corners) / 16 for i in range(3))
-
-        faces = {}
-        for raw_direction, face in element.get("faces", {}).items():
-            texture = resolve_texture(face.get("texture"), textures)
-            if texture is None:
-                continue
-            uv = face.get("uv")
-            if uv is None:
-                uv = default_uv(raw_direction, lo_raw, hi_raw)
-            cullface = face.get("cullface")
-            world_direction = rotate_direction(raw_direction, x_deg, y_deg)
-            faces[world_direction] = {
-                "texture": texture,
-                "uv": tuple(v / 16 for v in uv),
-                "cullface": rotate_direction(cullface, x_deg, y_deg) if cullface else None,
-                "tinted": "tintindex" in face,
-            }
-        result.append({"lo": lo, "hi": hi, "faces": faces})
-    return result
-
-
-FACE_UV_PLANE = {
-    "up": (0, 2), "down": (0, 2),
-    "north": (0, 1), "south": (0, 1),
-    "east": (2, 1), "west": (2, 1),
-}
+    for entry in entries:
+        model = resolve_model(entry["model"])
+        if not model["elements"]:
+            continue
+        x_deg, y_deg = entry.get("x", 0), entry.get("y", 0)
+        for element in model["elements"]:
+            lo, hi = element["from"], element["to"]
+            corners = [
+                rotate_blockstate(rotate_element(point, element.get("rotation")), x_deg, y_deg)
+                for point in box_corners(lo, hi)
+            ]
+            faces = {}
+            for direction, face in element.get("faces", {}).items():
+                texture = resolve_texture(face.get("texture"), model["textures"])
+                if texture is None:
+                    continue
+                uv = face.get("uv", default_uv(direction, lo, hi))
+                world_direction = rotate_direction(direction, x_deg, y_deg)
+                cullface = face.get("cullface")
+                cullface = {"top": "up", "bottom": "down"}.get(cullface, cullface)
+                faces[world_direction] = {
+                    "texture": texture,
+                    "uv": tuple(value / 16 for value in uv),
+                    "uv_rotation": (
+                        face.get("rotation", 0) // 90
+                        + (uvlock_quarters(direction, x_deg, y_deg) if entry.get("uvlock") else 0)
+                    ) % 4,
+                    "vertices": tuple(
+                        tuple(value / 16 for value in corners[i])
+                        for i in FACE_CORNERS[direction]
+                    ),
+                    "cullface": rotate_direction(cullface, x_deg, y_deg) if cullface else None,
+                    "tinted": "tintindex" in face,
+                }
+            if faces:
+                result.append({
+                    "lo": tuple(min(point[i] for point in corners) / 16 for i in range(3)),
+                    "hi": tuple(max(point[i] for point in corners) / 16 for i in range(3)),
+                    "faces": faces,
+                })
+    return result if result else ([] if entries else None)
 
 
 def default_uv(direction, lo, hi):

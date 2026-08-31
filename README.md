@@ -8,15 +8,12 @@ it at your own Minecraft client and get pixel-accurate PNGs and USDZ out
 the other end.
 
 **This isn't a lookup table of ~50 common blocks with guessed shapes.**
-The resolver walks the same blockstate → model → element → UV pipeline the
-Minecraft client itself uses, so it produces real geometry for the entire
-vanilla block set — stairs, slabs, doors, fences, cross-plants, redstone
-components, all of it — without a single per-block special case in the
-code. The only blocks that need individual handling are the handful vanilla
-itself renders outside the model system entirely (chest, skull/head,
-banner, decorated pot — real block-entity renderers, no JSON geometry
-exists for them to read), and those are the only hand-written exceptions
-in the whole project.
+The resolver walks the same blockstate → multipart/variant → model → element
+rotation → UV pipeline the Minecraft client itself uses, so ordinary vanilla
+blocks — stairs, doors, fences, plants, redstone and the rest — come from the
+game's data rather than per-block guesses. Vanilla's non-model renderers
+(chests, banners, heads, shulker boxes, conduit, bell, decorated pots,
+portals and fluids) share a compact textured compound-model layer.
 
 <p>
   <img src="docs/screenshots/usdz-floating-island.png" width="49%" alt="USDZ export of a floating island structure, viewed in a 3D viewer">
@@ -25,10 +22,9 @@ in the whole project.
 
 ## Why it's worth using
 
-- **Real, not approximated.** Every texture pixel and every block shape
-  comes straight from your own client — the same blockstate/model JSON and
-  PNGs the game itself renders from. Doors, stairs, cross-plants, chests,
-  glass — actual geometry, not a lookalike.
+- **Data-driven where vanilla is.** JSON-modelled blocks use the same
+  blockstate/model data and PNGs as the game. Dynamic blocks use their real
+  entity textures on compact state-aware compound geometry.
 - **One mesh, every output.** Geometry is resolved once and shared between
   PNG renders and USDZ export, so what you preview is exactly what you get
   in 3D — nothing drifts between formats.
@@ -49,8 +45,8 @@ in the whole project.
 ## What it does
 
 - **`block_model.py`** — generic blockstate/model resolver: variants,
-  multipart, parent chains, per-face UV and rotation. Builds real geometry
-  for the whole vanilla block set, not a per-block special case.
+  multipart conditions, parent chains, element rotations, UV rotation and
+  UV locking. Builds real geometry for every JSON-modelled vanilla block.
 - **`textures.py`** — resolves `#variable` texture references and samples
   the real PNG, including per-pixel alpha for correct occlusion (glass,
   leaves, iron bars).
@@ -63,6 +59,8 @@ in the whole project.
   any USDZ viewer, from the same mesh builder as the hero renderer.
 - **`build_full_cube_list.py` / `build_opaque_blocks.py`** — data-derived
   block classification, described above.
+- **`docs/block-render-audit-26.2.md`** — one row for every vanilla
+  blockstate, including explicit dynamic-render limitations.
 - **`legacy_input.py`** (`legacy` extra) — every entry point also accepts a
   legacy `.schematic`, sponge `.schem`, `.litematic`, or anything else
   [amulet-core](https://github.com/Amulet-Team/Amulet-Core) recognizes, and

@@ -129,8 +129,9 @@ class Atlas:
         rects = []
         for i, image in enumerate(self.images):
             row, col = divmod(i, cols)
+            image = image.convert("RGBA").resize((size, size), resample=0)
             atlas[row * size:(row + 1) * size, col * size:(col + 1) * size] = np.asarray(
-                image.convert("RGBA"),
+                image,
             )
             v_max = 1 - row / rows
             v_min = 1 - (row + 1) / rows
@@ -238,30 +239,20 @@ def box_corners(lo, hi):
     ], dtype=np.float32)
 
 
-def box_mesh(own, occluder, lo, hi):
-    points_all, faces_all = [], []
-    corners = box_corners(lo, hi)
-    for direction, step in FACE_STEP.items():
-        axis = next(i for i, v in enumerate(step) if v != 0)
-        on_boundary = (lo[axis] == 0.0 and step[axis] < 0) or (hi[axis] == 1.0 and step[axis] > 0)
-        mask = exposed_mask(own, occluder, direction) if on_boundary else own
-        positions = np.argwhere(mask).astype(np.float32)
-        if len(positions) == 0:
-            continue
-        quad_points = (positions[:, None, :] + corners[CUBE_FACES[direction]][None, :, :]).reshape(-1, 3)
-        base = sum(len(p) for p in points_all)
-        idx = np.arange(len(positions) * 4).reshape(-1, 4) + base
-        faces_all.append(np.hstack([np.full((len(positions), 1), 4), idx]).ravel())
-        points_all.append(quad_points)
-    if not points_all:
-        return None, None
-    return np.vstack(points_all), np.concatenate(faces_all).astype(np.int64)
+def rotate_y(points, degrees):
+    angle = np.radians(degrees)
+    cosine, sine = np.cos(angle), np.sin(angle)
+    result = points.copy()
+    x, z = points[:, 0] - 0.5, points[:, 2] - 0.5
+    result[:, 0] = x * cosine - z * sine + 0.5
+    result[:, 2] = x * sine + z * cosine + 0.5
+    return result
 
 
 TORCH_STANDING = ("minecraft:torch", "minecraft:soul_torch", "minecraft:redstone_torch")
 TORCH_WALL = ("minecraft:wall_torch", "minecraft:soul_wall_torch", "minecraft:redstone_wall_torch")
 WALL_TORCH_OFFSET = {
-    "east": (-0.3, 0.0), "west": (0.3, 0.0), "south": (0.0, -0.3), "north": (0.0, 0.3),
+    "east": (-0.5, 0.0), "west": (0.5, 0.0), "south": (0.0, -0.5), "north": (0.0, 0.5),
 }
 
 
@@ -301,11 +292,11 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     atlas = Atlas()
     resolved = {}
     generic = {}
-    entities = {}
+    specials = {}
     element_texture_cache = {}
 
-    def element_rect_index(texture_name, tinted, block_name):
-        tint_color = tint_for(block_name) if tinted else None
+    def element_rect_index(texture_name, tinted, block_name, props):
+        tint_color = tint_for(block_name, props) if tinted else None
         cache_key = (texture_name, tint_color)
         if cache_key not in element_texture_cache:
             image = bank.read_texture(texture_name, tint_color)
@@ -313,31 +304,32 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         return element_texture_cache[cache_key]
 
     for index, name in index_names.items():
-        if family(name) == "glass" and "_pane" not in name:
-            continue
-        if is_post_family(name):
+        props = index_props.get(index, {})
+        if is_post_family(name) and not all(direction in props for direction in ARM_AXIS):
             texture_name = post_texture(name)
             image = bank.read_texture(texture_name) if texture_name else None
             faces = {"all": image} if image is not None else bank.resolve(name)
             if faces:
                 resolved[index] = {key: atlas.add(image) for key, image in faces.items()}
             continue
-        if name in TORCH_STANDING or name in TORCH_WALL:
-            faces = bank.resolve(name)
-            if faces:
-                resolved[index] = {key: atlas.add(image) for key, image in faces.items()}
-            continue
-        if is_cross(name):
-            faces = bank.resolve(name)
-            if faces:
-                resolved[index] = {key: atlas.add(image) for key, image in faces.items()}
-                continue
-        props = index_props.get(index, {})
         elements = block_elements(name, props)
+        shape = entity_shape(name, props) if not elements or name == "minecraft:bell" else None
+        if shape is not None:
+            parts = []
+            for part in shape:
+                image = bank.read_asset(part["texture"], part["tint"], part["crop"], part["alpha"])
+                if image is not None:
+                    parts.append({**part, "rect_index": atlas.add(image)})
+            specials[index] = parts
+        if elements == []:
+            if name in ("minecraft:water", "minecraft:lava", "minecraft:bubble_column"):
+                elements = None
+            else:
+                if shape is None:
+                    specials[index] = []
+                continue
         if elements is None:
-            shape = entity_shape(name, props)
-            if shape:
-                entities[index] = shape
+            if shape is not None:
                 continue
             faces = bank.resolve(name)
             if faces:
@@ -347,15 +339,21 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         for element in elements:
             faces = {}
             for direction, face in element["faces"].items():
-                rect_index = element_rect_index(face["texture"], face["tinted"], name)
+                rect_index = element_rect_index(face["texture"], face["tinted"], name, props)
                 if rect_index is None:
                     continue
-                faces[direction] = {"rect_index": rect_index, "uv": face["uv"], "cullface": face["cullface"]}
+                faces[direction] = {
+                    "rect_index": rect_index,
+                    "uv": face["uv"],
+                    "uv_rotation": face["uv_rotation"],
+                    "vertices": face["vertices"],
+                    "cullface": face["cullface"],
+                }
             if faces:
                 built.append({"lo": element["lo"], "hi": element["hi"], "faces": faces})
         if built:
             generic[index] = built
-    if not resolved and not generic and not entities:
+    if not resolved and not generic and not specials:
         return [], [], set(), np.zeros_like(solid)
 
     occluder = np.zeros_like(solid)
@@ -408,12 +406,40 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         if not own.any():
             continue
         for element in elements:
-            corners = box_corners(element["lo"], element["hi"])
             for direction, face in element["faces"].items():
-                mask = exposed_mask(own, occluder, face["cullface"]) if face["cullface"] else own
+                mask = exposed_mask(own, occluder | own, face["cullface"]) if face["cullface"] else own
                 pos = np.argwhere(mask).astype(np.float32)
                 uv = atlas_uv(rects[face["rect_index"]], face["uv"])
-                append(pos, corners[CUBE_FACES[direction]], uv)
+                uv = np.roll(uv, face["uv_rotation"], axis=0)
+                append(pos, np.asarray(face["vertices"], dtype=np.float32), uv)
+
+    water_mask = np.zeros_like(solid)
+    lava_mask = np.zeros_like(solid)
+    for index, name in index_names.items():
+        if name in ("minecraft:water", "minecraft:bubble_column"):
+            water_mask |= state == index
+        elif name == "minecraft:lava":
+            lava_mask |= state == index
+
+    for index, parts in specials.items():
+        own = state == index
+        if not own.any():
+            continue
+        name = index_names[index]
+        for part in parts:
+            lo, hi = part["lo"], part["hi"]
+            corners = rotate_y(box_corners(lo, hi), part["angle"])
+            for direction, indices in CUBE_FACES.items():
+                axis = next(i for i, value in enumerate(FACE_STEP[direction]) if value)
+                edge = lo[axis] == 0 if FACE_STEP[direction][axis] < 0 else hi[axis] == 1
+                if name in ("minecraft:water", "minecraft:bubble_column"):
+                    neighbors = water_mask
+                elif name == "minecraft:lava":
+                    neighbors = lava_mask
+                else:
+                    neighbors = occluder | own
+                mask = exposed_mask(own, neighbors, direction) if edge and part["angle"] % 90 == 0 else own
+                append(np.argwhere(mask).astype(np.float32), corners[indices], uv_for_rect(rects[part["rect_index"]]))
 
     for index, face_ids in resolved.items():
         name = index_names[index]
@@ -443,7 +469,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
             post_corners = box_corners(post_lo, post_hi)
             connects = {d: connects_mask(own, connectable, d) for d in ARM_AXIS}
             for direction in ("up", "down"):
-                mask = exposed_mask(own, occluder, direction)
+                mask = exposed_mask(own, occluder | own, direction)
                 pos = np.argwhere(mask).astype(np.float32)
                 append(pos, post_corners[CUBE_FACES[direction]], cropped_uv(rect, direction, post_lo, post_hi))
             for direction in ARM_AXIS:
@@ -504,23 +530,14 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 append(positions, plane_z[CUBE_FACES[direction]], uv)
         else:
             for direction in CUBE_FACES:
-                mask = exposed_mask(own, occluder, direction)
+                mask = exposed_mask(own, occluder | own, direction)
                 pos = np.argwhere(mask).astype(np.float32)
                 key = face_texture_key(direction, face_ids)
                 rect = rects[face_ids.get(key, face_ids.get("all"))]
                 append(pos, CUBE_CORNERS[CUBE_FACES[direction]], uv_for_rect(rect))
 
     flat_entities = []
-    for index, (lo, hi) in entities.items():
-        own = state == index
-        if not own.any():
-            continue
-        points, faces = box_mesh(own, occluder, lo, hi)
-        if points is None:
-            continue
-        flat_entities.append((points, faces, block_color(index_names[index], "family"), 255))
-
-    textured_indices = set(resolved) | set(generic) | set(entities)
+    textured_indices = set(resolved) | set(generic) | set(specials)
     if not points_all:
         return [], flat_entities, textured_indices, occluder
 

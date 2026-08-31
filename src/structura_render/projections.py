@@ -3,6 +3,7 @@
 import argparse
 import colorsys
 import hashlib
+import math
 from pathlib import Path
 
 import numpy as np
@@ -167,15 +168,25 @@ def panel(image, title, scale):
 
 
 def compose(panels, output, caption=None):
-    columns = 3
+    columns = min(3, len(panels))
+    row_count = math.ceil(len(panels) / columns)
     gap = 18
-    widths = [max(panels[i].width for i in range(col, len(panels), columns)) for col in range(columns)]
-    rows = [max(panel.height for panel in panels[row * columns:(row + 1) * columns]) for row in range(2)]
+    widths = [
+        max((panels[i].width for i in range(col, len(panels), columns)), default=0)
+        for col in range(columns)
+    ]
+    rows = [
+        max((panel.height for panel in panels[row * columns:(row + 1) * columns]), default=0)
+        for row in range(row_count)
+    ]
     legend_height = 52
     caption_height = 22 if caption else 0
     canvas = Image.new(
         "RGB",
-        (sum(widths) + gap * 4, sum(rows) + gap * 3 + legend_height + caption_height),
+        (
+            sum(widths) + gap * (columns + 1),
+            sum(rows) + gap * (row_count + 1) + legend_height + caption_height,
+        ),
         (238, 240, 243),
     )
     for index, item in enumerate(panels):
@@ -213,6 +224,12 @@ def main():
     parser.add_argument("--pod-masks")
     parser.add_argument("--scale", type=int, default=16, help="pixels per block")
     parser.add_argument("--color-mode", choices=("family", "block"), default="family")
+    parser.add_argument(
+        "--views", nargs="+",
+        choices=("top", "bottom", "north", "south", "west", "east"),
+        default=("top", "bottom", "north", "south", "west", "east"),
+        help="render only a subset of views, e.g. --views top",
+    )
     args = parser.parse_args()
     if args.scale < 1:
         parser.error("--scale must be positive")
@@ -263,7 +280,7 @@ def main():
                 f"glass_dome={'on' if glass_dome.any() else 'off'}"
             ))
 
-    views = ("top", "bottom", "north", "south", "west", "east")
+    views = tuple(args.views)
     rendered = [
         render_view(
             states, structure.palette, pod, envelope, aura, cavern_aura,

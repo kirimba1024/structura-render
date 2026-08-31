@@ -63,6 +63,10 @@ in the whole project.
   any USDZ viewer, from the same mesh builder as the hero renderer.
 - **`build_full_cube_list.py` / `build_opaque_blocks.py`** — data-derived
   block classification, described above.
+- **`legacy_input.py`** (`legacy` extra) — every entry point also accepts a
+  legacy `.schematic`, sponge `.schem`, `.litematic`, or anything else
+  [amulet-core](https://github.com/Amulet-Team/Amulet-Core) recognizes, and
+  converts it to Structure NBT on the fly. No manual conversion step.
 
 ## Quick start
 
@@ -71,6 +75,14 @@ export STRUCTURA_MINECRAFT_ASSETS="$HOME/Library/Application Support/minecraft/v
 pip install 'git+https://github.com/kirimba1024/structura-core.git'
 pip install -e '.[usdz]'
 structura-render-hero structure.nbt preview.png
+```
+
+Have a legacy `.schematic`/`.schem`/`.litematic` instead of Structure NBT?
+Install `pip install -e '.[legacy]'` and pass it straight in — no separate
+conversion step:
+
+```bash
+structura-render-hero house.schematic preview.png
 ```
 
 Point `STRUCTURA_MINECRAFT_ASSETS` at a client `.jar` (any version from

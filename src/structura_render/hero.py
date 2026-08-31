@@ -9,6 +9,7 @@ import pyvista as pv
 
 from structura_core import Structure
 
+from .legacy_input import as_structure_nbt
 from .mesh import build_textured_meshes, flat_rgba, voxel_state
 from .textures import TextureBank
 
@@ -37,7 +38,7 @@ def main():
             return
         raise SystemExit(message)
 
-    src = Structure(args.src)
+    src = Structure(as_structure_nbt(args.src))
     sx, sy, sz = src.size
     state, solid, index_names, index_props = voxel_state(src)
 

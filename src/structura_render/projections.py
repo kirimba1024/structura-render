@@ -12,6 +12,8 @@ from scipy import ndimage
 from structura_core import AIR_NAMES, Structure
 from structura_core.voxel import dilation
 
+from .legacy_input import as_structure_nbt
+
 DIAGNOSTIC_CAVERN_RADIUS = 4.0
 
 
@@ -215,7 +217,7 @@ def main():
     if args.scale < 1:
         parser.error("--scale must be positive")
 
-    structure = Structure(args.src)
+    structure = Structure(as_structure_nbt(args.src))
     states = np.full(structure.size, -1, dtype=np.int32)
     for pos, index in structure.present.items():
         if structure.palette[index] not in AIR_NAMES:

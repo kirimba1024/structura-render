@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 hero = ["pyvista>=0.46,<0.47"]
 usdz = ["pyvista>=0.46,<0.47", "usd-core>=26,<27"]
+legacy = ["structura-core[legacy]>=0.1.0,<0.2"]
 
 [project.scripts]
 structura-render-projections = "structura_render.projections:main"

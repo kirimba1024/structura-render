@@ -12,6 +12,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, UsdUtils
 
 from structura_core import Structure
 
+from .legacy_input import as_structure_nbt
 from .mesh import CUBE_FACES, box_corners, build_textured_meshes, flat_rgba, shift_toward, voxel_state
 from .textures import TextureBank
 
@@ -164,7 +165,7 @@ def main():
     parser.add_argument("--pod-masks")
     args = parser.parse_args()
 
-    src = Structure(args.src)
+    src = Structure(as_structure_nbt(args.src))
     state, solid, index_names, index_props = voxel_state(src)
 
     bank = TextureBank()

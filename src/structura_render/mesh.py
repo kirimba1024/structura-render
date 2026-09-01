@@ -120,22 +120,28 @@ class Atlas:
             self.images.append(image)
         return self.index[key]
 
-    def build(self):
+    def build(self, padding=2):
         count = len(self.images)
         cols = max(1, int(np.ceil(np.sqrt(count))))
         rows = int(np.ceil(count / cols))
         size = 16
-        atlas = np.zeros((rows * size, cols * size, 4), dtype=np.uint8)
+        cell = size + 2 * padding
+        atlas_w, atlas_h = cols * cell, rows * cell
+        atlas = np.zeros((atlas_h, atlas_w, 4), dtype=np.uint8)
         rects = []
         for i, image in enumerate(self.images):
             row, col = divmod(i, cols)
             image = image.convert("RGBA").resize((size, size), resample=0)
-            atlas[row * size:(row + 1) * size, col * size:(col + 1) * size] = np.asarray(
-                image,
+            tile = np.pad(
+                np.asarray(image), ((padding, padding), (padding, padding), (0, 0)),
+                mode="edge",
             )
-            v_max = 1 - row / rows
-            v_min = 1 - (row + 1) / rows
-            u_min, u_max = col / cols, (col + 1) / cols
+            r0, c0 = row * cell, col * cell
+            atlas[r0:r0 + cell, c0:c0 + cell] = tile
+            px0, px1 = c0 + padding, c0 + padding + size
+            py0, py1 = r0 + padding, r0 + padding + size
+            u_min, u_max = px0 / atlas_w, px1 / atlas_w
+            v_max, v_min = 1 - py0 / atlas_h, 1 - py1 / atlas_h
             inset_u, inset_v = (u_max - u_min) / (2 * size), (v_max - v_min) / (2 * size)
             rects.append((
                 u_min + inset_u, u_max - inset_u, v_min + inset_v, v_max - inset_v,
@@ -469,7 +475,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
             post_corners = box_corners(post_lo, post_hi)
             connects = {d: connects_mask(own, connectable, d) for d in ARM_AXIS}
             for direction in ("up", "down"):
-                mask = exposed_mask(own, occluder | own, direction)
+                mask = exposed_mask(own, connectable, direction)
                 pos = np.argwhere(mask).astype(np.float32)
                 append(pos, post_corners[CUBE_FACES[direction]], cropped_uv(rect, direction, post_lo, post_hi))
             for direction in ARM_AXIS:

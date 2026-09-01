@@ -320,6 +320,15 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         if shape is not None:
             parts = []
             for part in shape:
+                if part["faces"]:
+                    rect_by_face = {}
+                    for direction, crop in part["faces"].items():
+                        image = bank.read_asset(part["texture"], part["tint"], crop, part["alpha"])
+                        if image is not None:
+                            rect_by_face[direction] = atlas.add(image)
+                    if rect_by_face:
+                        parts.append({**part, "rect_by_face": rect_by_face})
+                    continue
                 image = bank.read_asset(part["texture"], part["tint"], part["crop"], part["alpha"])
                 if image is not None:
                     parts.append({**part, "rect_index": atlas.add(image)})
@@ -442,7 +451,8 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 else:
                     neighbors = occluder | own
                 mask = exposed_mask(own, neighbors, direction) if edge and part["angle"] % 90 == 0 else own
-                append(np.argwhere(mask).astype(np.float32), corners[indices], uv_for_rect(rects[part["rect_index"]]))
+                rect_index = part["rect_by_face"][direction] if "rect_by_face" in part else part["rect_index"]
+                append(np.argwhere(mask).astype(np.float32), corners[indices], uv_for_rect(rects[rect_index]))
 
     for index, face_ids in resolved.items():
         name = index_names[index]

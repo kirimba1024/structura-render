@@ -17,10 +17,10 @@ INVISIBLE = {
 }
 
 
-def box(lo, hi, texture, crop=None, tint=None, alpha=255, angle=0):
+def box(lo, hi, texture, crop=None, tint=None, alpha=255, angle=0, faces=None):
     return {
         "lo": lo, "hi": hi, "texture": texture, "crop": crop,
-        "tint": tint, "alpha": alpha, "angle": angle,
+        "tint": tint, "alpha": alpha, "angle": angle, "faces": faces,
     }
 
 
@@ -81,6 +81,17 @@ def sign(base, props):
     return result
 
 
+# The entity skin's head cube, unwrapped: front/back/top/bottom/right/left
+# are six distinct 8x8 regions of the same texture, not one tile repeated on
+# every face -- south is the model's front by the same yaw=0-faces-south
+# convention the player model itself uses.
+HEAD_FACES = {
+    "south": (8, 8, 16, 16), "north": (24, 8, 32, 16),
+    "up": (8, 0, 16, 8), "down": (16, 0, 24, 8),
+    "west": (0, 8, 8, 16), "east": (16, 8, 24, 16),
+}
+
+
 def head(base, props):
     wall = "_wall_" in base
     kind = base.replace("_wall", "").removesuffix("_skull").removesuffix("_head")
@@ -93,7 +104,7 @@ def head(base, props):
         ((4 / 16, 4 / 16, 8 / 16), (12 / 16, 12 / 16, 1))
         if wall else ((4 / 16, 0, 4 / 16), (12 / 16, 8 / 16, 12 / 16))
     )
-    return [box(lo, hi, texture, (8, 8, 16, 16), angle=angle_for(props))]
+    return [box(lo, hi, texture, faces=HEAD_FACES, angle=angle_for(props))]
 
 
 def copper_golem(base, props):

@@ -142,10 +142,7 @@ class Atlas:
             py0, py1 = r0 + padding, r0 + padding + size
             u_min, u_max = px0 / atlas_w, px1 / atlas_w
             v_max, v_min = 1 - py0 / atlas_h, 1 - py1 / atlas_h
-            inset_u, inset_v = (u_max - u_min) / (2 * size), (v_max - v_min) / (2 * size)
-            rects.append((
-                u_min + inset_u, u_max - inset_u, v_min + inset_v, v_max - inset_v,
-            ))
+            rects.append((u_min, u_max, v_min, v_max))
         return atlas, rects
 
 

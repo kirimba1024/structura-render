@@ -2,7 +2,7 @@
 """Determine, for every vanilla block, whether it's a real full opaque
 cube (occupies [0,0,0]-[16,16,16] with all 6 faces defined) by resolving
 its actual blockstate -> model -> parent chain from the game's own
-files -- not a name/substring guess. Writes tools/data/full_cube_blocks.json,
+files -- not a name/substring guess. Writes structura_render/data/full_cube_blocks.json,
 loaded by full_cube.is_full_cube_shape()."""
 import json
 from pathlib import Path

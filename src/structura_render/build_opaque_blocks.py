@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""For every block classified as a full cube (tools/data/full_cube_blocks.json),
+"""For every block classified as a full cube (structura_render/data/full_cube_blocks.json),
 determine whether it's actually fully opaque by reading the real alpha channel
 of its real texture(s) -- not by name or by shape. A full-cube block whose
 texture has any non-255 alpha (leaves, ice, honey, slime...) must not occlude
 neighbor faces even though its shape is a full cube. Writes
-tools/data/opaque_blocks.json, loaded by full_cube.is_opaque_shape()."""
+structura_render/data/opaque_blocks.json, loaded by full_cube.is_opaque_shape()."""
 import json
 from pathlib import Path
 

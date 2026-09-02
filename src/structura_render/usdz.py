@@ -19,20 +19,17 @@ from .mesh import (
 )
 from .textures import TextureBank
 
-AURA_LAYERS = [
-    ("Envelope", "envelope", (0.75, 0.3, 0.9), 0.06),
-    ("CavernAura", "cavern_aura", (0.35, 0.5, 0.95), 0.05),
-]
-AURA_LIFT = 0.04
-
 GROUND_LEVEL_COLOR = (1.0, 0.35, 0.65)
 GROUND_LEVEL_OPACITY = 0.07
 GROUND_LEVEL_LIFT = 0.04
+GROUND_LEVEL_MARGIN = 6.0
 
 
 def ground_level_mesh(size_x, size_z, ground_y):
     y = float(ground_y) + 1.0 - GROUND_LEVEL_LIFT
-    points = [(0.0, y, 0.0), (float(size_x), y, 0.0), (float(size_x), y, float(size_z)), (0.0, y, float(size_z))]
+    x0, z0 = -GROUND_LEVEL_MARGIN, -GROUND_LEVEL_MARGIN
+    x1, z1 = float(size_x) + GROUND_LEVEL_MARGIN, float(size_z) + GROUND_LEVEL_MARGIN
+    points = [(x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)]
     return points, [[0, 1, 2, 3]]
 
 # Same 35/35 degree three-quarter angle and radius*1.1 fit hero.py's own
@@ -206,22 +203,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("src")
     parser.add_argument("output")
-    parser.add_argument("--envelope-masks")
-    parser.add_argument("--pod-masks")
-    parser.add_argument(
-        "--mask-shift", type=float, nargs=3, metavar=("X", "Y", "Z"),
-        help="override the (x, y, z) shift applied to --envelope-masks "
-             "overlays instead of reading it from --pod-masks -- for "
-             "aligning the envelope/aura arrays (padded by the envelope "
-             "pass's own margin) onto a differently-framed mesh, e.g. the "
-             "untouched Original structure rather than a terrain_pod "
-             "variant",
-    )
     parser.add_argument(
         "--ground-y", type=float,
         help="Y of the topmost ground block (the structure's own "
-             "coordinates, matching the base_y saved in --pod-masks/"
-             "--envelope-masks) -- draws a faint translucent plane at its "
+             "coordinates, matching the base_y saved by envelope.py/"
+             "terrain_pod.py) -- draws a faint translucent plane at its "
              "top face, where a player's feet would stand, for visually "
              "confirming detect_base_y instead of guessing from a render",
     )
@@ -293,22 +279,6 @@ def main():
                 stage, root, f"Flat{index}Material", (r / 255, g / 255, b / 255), a / 255,
             )
             add_flat_mesh(stage, root, f"Flat{index}", points, faces, flat_material, center)
-
-        if args.envelope_masks:
-            masks = np.load(args.envelope_masks)
-            if args.mask_shift is not None:
-                shift = np.asarray(args.mask_shift, dtype=np.float64)
-            elif args.pod_masks:
-                shift = np.load(args.pod_masks)["shift"]
-            else:
-                shift = np.zeros(3)
-            for name, key, color, opacity in AURA_LAYERS:
-                if key not in masks or not masks[key].any():
-                    continue
-                points, faces = mask_surface(masks[key], lift=AURA_LIFT)
-                points = [(p[0] + shift[0], p[1] + shift[1], p[2] + shift[2]) for p in points]
-                aura_material = build_flat_material(stage, root, f"{name}Material", color, opacity)
-                add_flat_mesh(stage, root, name, points, faces, aura_material, center)
 
         if args.ground_y is not None:
             points, faces = ground_level_mesh(src.size[0], src.size[2], args.ground_y)

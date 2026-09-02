@@ -251,11 +251,14 @@ def main():
     bubble_aura = np.zeros(structure.size, dtype=bool)
     glass_dome = np.zeros(structure.size, dtype=bool)
     pod_shift = (0, 0, 0)
+    ground_y = None
     caption_parts = []
     if args.pod_masks:
         masks = np.load(args.pod_masks)
         pod = place_mask(structure.size, masks["pod"], (0, 0, 0))
         pod_shift = tuple(int(value) for value in masks["shift"])
+        if "base_y" in masks:
+            ground_y = int(masks["base_y"])
         if "profile" in masks:
             profile = masks["profile"]
             caption_parts.append(
@@ -266,7 +269,11 @@ def main():
         envelope = place_mask(structure.size, masks["surface"], pod_shift)
         aura = place_mask(structure.size, masks["aura"], pod_shift)
         full_envelope = place_mask(structure.size, masks["envelope"], pod_shift)
+        if ground_y is None and "base_y" in masks:
+            ground_y = int(masks["base_y"])
         cavern_aura = dilation(full_envelope, DIAGNOSTIC_CAVERN_RADIUS) & ~full_envelope
+        if ground_y is not None:
+            cavern_aura[:, :ground_y, :] = False
         if "glass_dome" in masks:
             glass_dome = place_mask(
                 structure.size, masks["glass_dome"], pod_shift,

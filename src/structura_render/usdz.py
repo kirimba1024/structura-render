@@ -21,6 +21,35 @@ AURA_LAYERS = [
     ("CavernAura", "cavern_aura", (0.35, 0.5, 0.95), 0.10),
 ]
 
+# Same 35/35 degree three-quarter angle and radius*1.1 fit hero.py's own
+# PyVista camera uses (proven to look right across every hero render so
+# far) -- reused here so a USDZ viewer's initial framing matches instead
+# of defaulting to sitting at the origin with no back-off distance.
+CAMERA_AZIMUTH = 35.0
+CAMERA_ELEVATION = 35.0
+CAMERA_FOCAL_LENGTH = 45.0
+CAMERA_HORIZONTAL_APERTURE = 36.0
+CAMERA_VERTICAL_APERTURE = 24.0
+
+
+def add_framing_camera(stage, root, size):
+    radius = float(np.linalg.norm(np.asarray(size, dtype=np.float64))) * 1.1
+    azimuth, elevation = np.radians((CAMERA_AZIMUTH, CAMERA_ELEVATION))
+    direction = np.array([
+        np.cos(elevation) * np.sin(azimuth),
+        np.sin(elevation),
+        np.cos(elevation) * np.cos(azimuth),
+    ])
+    eye = radius * direction
+    camera = UsdGeom.Camera.Define(stage, root.AppendPath("Camera"))
+    camera.CreateFocalLengthAttr(CAMERA_FOCAL_LENGTH)
+    camera.CreateHorizontalApertureAttr(CAMERA_HORIZONTAL_APERTURE)
+    camera.CreateVerticalApertureAttr(CAMERA_VERTICAL_APERTURE)
+    camera.CreateClippingRangeAttr(Gf.Vec2f(0.1, max(radius * 4.0, 10.0)))
+    view = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(0, 0, 0), Gf.Vec3d(0, 1, 0))
+    camera.AddTransformOp().Set(view.GetInverse())
+    return camera
+
 
 def build_flat_material(stage, root, name, color, opacity):
     material = UsdShade.Material.Define(stage, root.AppendPath(name))
@@ -185,6 +214,7 @@ def main():
         UsdGeom.Xform.Define(stage, root)
         stage.SetDefaultPrim(stage.GetPrimAtPath(root))
         center = np.asarray(src.size, dtype=np.float32) / 2.0
+        add_framing_camera(stage, root, src.size)
 
         if meshes:
             mesh_obj, texture = meshes[0]

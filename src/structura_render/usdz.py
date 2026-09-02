@@ -13,13 +13,27 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, UsdUtils
 from structura_core import Structure
 
 from .legacy_input import as_structure_nbt
-from .mesh import CUBE_FACES, box_corners, build_textured_meshes, flat_rgba, shift_toward, voxel_state
+from .mesh import (
+    AXIS_VEC, CUBE_FACES, box_corners, build_textured_meshes, flat_rgba, shift_toward,
+    voxel_state,
+)
 from .textures import TextureBank
 
 AURA_LAYERS = [
-    ("Envelope", "envelope", (0.75, 0.3, 0.9), 0.12),
-    ("CavernAura", "cavern_aura", (0.35, 0.5, 0.95), 0.10),
+    ("Envelope", "envelope", (0.75, 0.3, 0.9), 0.06),
+    ("CavernAura", "cavern_aura", (0.35, 0.5, 0.95), 0.05),
 ]
+AURA_LIFT = 0.04
+
+GROUND_LEVEL_COLOR = (1.0, 0.35, 0.65)
+GROUND_LEVEL_OPACITY = 0.07
+GROUND_LEVEL_LIFT = 0.04
+
+
+def ground_level_mesh(size_x, size_z, ground_y):
+    y = float(ground_y) + 1.0 - GROUND_LEVEL_LIFT
+    points = [(0.0, y, 0.0), (float(size_x), y, 0.0), (float(size_x), y, float(size_z)), (0.0, y, float(size_z))]
+    return points, [[0, 1, 2, 3]]
 
 # Same 35/35 degree three-quarter angle and radius*1.1 fit hero.py's own
 # PyVista camera uses (proven to look right across every hero render so
@@ -63,7 +77,7 @@ def build_flat_material(stage, root, name, color, opacity):
     return material
 
 
-def mask_surface(mask, occluder=None):
+def mask_surface(mask, occluder=None, lift=0.0):
     occluder = mask if occluder is None else occluder
     points, faces = [], []
     for direction in CUBE_FACES:
@@ -73,6 +87,8 @@ def mask_surface(mask, occluder=None):
             continue
         offsets = box_corners((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))[CUBE_FACES[direction]]
         quad_points = (positions[:, None, :] + offsets[None, :, :]).reshape(-1, 3)
+        if lift:
+            quad_points = quad_points + np.asarray(AXIS_VEC[direction], dtype=np.float32) * lift
         base = len(points)
         points.extend(quad_points.tolist())
         for i in range(len(positions)):
@@ -192,6 +208,23 @@ def main():
     parser.add_argument("output")
     parser.add_argument("--envelope-masks")
     parser.add_argument("--pod-masks")
+    parser.add_argument(
+        "--mask-shift", type=float, nargs=3, metavar=("X", "Y", "Z"),
+        help="override the (x, y, z) shift applied to --envelope-masks "
+             "overlays instead of reading it from --pod-masks -- for "
+             "aligning the envelope/aura arrays (padded by the envelope "
+             "pass's own margin) onto a differently-framed mesh, e.g. the "
+             "untouched Original structure rather than a terrain_pod "
+             "variant",
+    )
+    parser.add_argument(
+        "--ground-y", type=float,
+        help="Y of the topmost ground block (the structure's own "
+             "coordinates, matching the base_y saved in --pod-masks/"
+             "--envelope-masks) -- draws a faint translucent plane at its "
+             "top face, where a player's feet would stand, for visually "
+             "confirming detect_base_y instead of guessing from a render",
+    )
     args = parser.parse_args()
 
     src = Structure(as_structure_nbt(args.src))
@@ -263,16 +296,26 @@ def main():
 
         if args.envelope_masks:
             masks = np.load(args.envelope_masks)
-            shift = np.zeros(3)
-            if args.pod_masks:
+            if args.mask_shift is not None:
+                shift = np.asarray(args.mask_shift, dtype=np.float64)
+            elif args.pod_masks:
                 shift = np.load(args.pod_masks)["shift"]
+            else:
+                shift = np.zeros(3)
             for name, key, color, opacity in AURA_LAYERS:
                 if key not in masks or not masks[key].any():
                     continue
-                points, faces = mask_surface(masks[key])
+                points, faces = mask_surface(masks[key], lift=AURA_LIFT)
                 points = [(p[0] + shift[0], p[1] + shift[1], p[2] + shift[2]) for p in points]
                 aura_material = build_flat_material(stage, root, f"{name}Material", color, opacity)
                 add_flat_mesh(stage, root, name, points, faces, aura_material, center)
+
+        if args.ground_y is not None:
+            points, faces = ground_level_mesh(src.size[0], src.size[2], args.ground_y)
+            ground_material = build_flat_material(
+                stage, root, "GroundLevelMaterial", GROUND_LEVEL_COLOR, GROUND_LEVEL_OPACITY,
+            )
+            add_flat_mesh(stage, root, "GroundLevel", points, faces, ground_material, center)
 
         stage.GetRootLayer().Save()
 

@@ -161,7 +161,9 @@ def render_view(
     if ground_y is not None and view in ("north", "south", "west", "east"):
         row = states.shape[1] - 1 - ground_y
         if 0 <= row < canvas.shape[0]:
-            canvas[row, :, :] = 0
+            dash = np.zeros(canvas.shape[:2], dtype=bool)
+            dash[row, (np.arange(canvas.shape[1]) // 2) % 2 == 0] = True
+            blend(canvas, dash, (0, 0, 0), 0.45)
     return np.clip(canvas, 0, 255).astype(np.uint8)
 
 

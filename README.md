@@ -4,8 +4,8 @@
 your own game's actual textures and block shapes, not guesses.**
 
 No fake textures, no hardcoded block shapes, no bundled game files. Point
-it at your own Minecraft client and get pixel-accurate PNGs and USDZ out
-the other end.
+it at your own Minecraft client and get pixel-accurate PNGs and a 3D file
+(USDZ, glTF/GLB, OBJ or STL) out the other end.
 
 **This isn't a lookup table of ~50 common blocks with guessed shapes.**
 The resolver walks the same blockstate → multipart/variant → model → element
@@ -26,8 +26,8 @@ portals and fluids) share a compact textured compound-model layer.
   blockstate/model data and PNGs as the game. Dynamic blocks use their real
   entity textures on compact state-aware compound geometry.
 - **One mesh, every output.** Geometry is resolved once and shared between
-  PNG renders and USDZ export, so what you preview is exactly what you get
-  in 3D — nothing drifts between formats.
+  PNG renders and every 3D export (USDZ, glTF, OBJ, STL), so what you
+  preview is exactly what you get in 3D — nothing drifts between formats.
 - **Clean by design.** Zero Mojang assets in this repo or its releases —
   can't, EULA forbids it. You always supply your own client, so there's no
   legal grey area to worry about.
@@ -36,8 +36,8 @@ portals and fluids) share a compact textured compound-model layer.
   1.21.1 and the newest 26.2. New blocks resolve automatically; no waiting
   on us to add support.
 - **Light by default.** Core install is just NumPy, Pillow and SciPy.
-  PyVista/USD only get pulled in if you actually ask for hero renders or
-  USDZ export.
+  PyVista and the format-specific libraries (USD, trimesh) only get pulled
+  in if you actually ask for hero renders or a given 3D export.
 - **Self-updating classification.** Which blocks are solid cubes (for
   occlusion) is computed from real model geometry, not a hand-maintained
   name list — it doesn't go stale as new blocks ship.
@@ -55,8 +55,15 @@ portals and fluids) share a compact textured compound-model layer.
   QA rather than looks.
 - **`hero.py`** (`hero` extra) — one real-textured, real-lit PyVista render
   of the finished structure — the kind of shot above.
-- **`usdz.py`** (`usdz` extra) — a textured 3D mesh for AR Quick Look or
-  any USDZ viewer, from the same mesh builder as the hero renderer.
+- **`usdz.py`** (`usdz` extra) — a textured USDZ mesh for AR Quick Look,
+  from the same mesh builder as the hero renderer.
+- **`gltf.py`** (`gltf` extra) — a textured `.glb`, for the web
+  (`<model-viewer>`, three.js), Android AR Scene Viewer, Blender and every
+  other glTF-reading tool.
+- **`obj.py`** (`obj` extra) — textured Wavefront OBJ + MTL, for Blender,
+  MeshLab and any classic 3D tool.
+- **`stl.py`** (`stl` extra) — binary STL geometry (no color/texture — the
+  format doesn't have one), for 3D printing or any STL reader.
 - **`build_full_cube_list.py` / `build_opaque_blocks.py`** — data-derived
   block classification, described above.
 - **`docs/block-render-audit-26.2.md`** — one row for every vanilla
@@ -68,16 +75,16 @@ portals and fluids) share a compact textured compound-model layer.
 
 ## Quick start
 
-No clone needed for either package, but `structura-core` isn't on PyPI yet,
-so `pip` can't resolve it as a transitive dependency — install it
-explicitly first, then `structura-render`:
-
 ```bash
 export STRUCTURA_MINECRAFT_ASSETS="$HOME/Library/Application Support/minecraft/versions/1.21.1/1.21.1.jar"
-pip install 'git+https://github.com/kirimba1024/structura-core.git'
-pip install "structura-render[usdz] @ git+https://github.com/kirimba1024/structura-render.git"
+pip install "structura-render[usdz]"
 structura-render-hero structure.nbt preview.png
+structura-export-usdz structure.nbt model.usdz
 ```
+
+Swap `[usdz]` for `[gltf]`, `[obj]` or `[stl]` (or several, comma-separated)
+for the other 3D formats — `structura-export-gltf`, `structura-export-obj`,
+`structura-export-stl` follow the same `src dst` signature.
 
 Have a legacy `.schematic`/`.schem`/`.litematic` instead of Structure NBT?
 Add the `legacy` extra (`[usdz,legacy]`) and pass it straight in — no
@@ -103,5 +110,6 @@ and isn't supported. On load, the package checks for `heavy_core` (added
 in 1.21) and warns on stderr if it's missing, as a cheap signal that the
 pointed-at client predates 1.21 — not exhaustive, just a sanity check.
 
-Use the lighter `hero` extra when USDZ export isn't needed; plain
-projection rendering skips PyVista and OpenUSD entirely.
+Use the lighter `hero` extra when no 3D export is needed; plain projection
+rendering (`structura-render-projections`, no extra) skips PyVista and
+every format-specific library entirely.

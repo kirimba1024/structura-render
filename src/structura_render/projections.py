@@ -125,7 +125,7 @@ def blend(image, mask, color, alpha):
 
 def render_view(
     states, palette, pod, envelope, aura, cavern_aura, bubble_aura,
-    glass_dome, view, color_mode,
+    glass_dome, view, color_mode, ground_y=None,
 ):
     axis, reverse = {
         "top": (1, True), "bottom": (1, False),
@@ -158,6 +158,10 @@ def render_view(
     canvas[edge] = np.asarray(ENVELOPE) * 0.8
     glass_edge = glass_2d & ~ndimage.binary_erosion(glass_2d)
     canvas[glass_edge] = np.asarray(GLASS_DOME) * 0.82
+    if ground_y is not None and view in ("north", "south", "west", "east"):
+        row = states.shape[1] - 1 - ground_y
+        if 0 <= row < canvas.shape[0]:
+            canvas[row, :, :] = 0
     return np.clip(canvas, 0, 255).astype(np.uint8)
 
 
@@ -299,7 +303,7 @@ def main():
     rendered = [
         render_view(
             states, structure.palette, pod, envelope, aura, cavern_aura,
-            bubble_aura, glass_dome, view, args.color_mode,
+            bubble_aura, glass_dome, view, args.color_mode, ground_y,
         )
         for view in views
     ]

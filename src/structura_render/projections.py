@@ -18,6 +18,10 @@ from .legacy_input import as_structure_nbt
 DIAGNOSTIC_CAVERN_RADIUS = 4.0
 
 
+def zero_below_ground(mask, ground_y):
+    mask[:, :max(0, ground_y), :] = False
+
+
 COLORS = {
     "air": (0, 0, 0),
     "grass": (92, 151, 72),
@@ -273,7 +277,7 @@ def main():
             ground_y = int(masks["base_y"])
         cavern_aura = dilation(full_envelope, DIAGNOSTIC_CAVERN_RADIUS) & ~full_envelope
         if ground_y is not None:
-            cavern_aura[:, :ground_y, :] = False
+            zero_below_ground(cavern_aura, ground_y)
         if "glass_dome" in masks:
             glass_dome = place_mask(
                 structure.size, masks["glass_dome"], pod_shift,

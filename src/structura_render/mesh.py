@@ -8,7 +8,7 @@ from PIL import Image
 from structura_core import AIR_NAMES, Structure
 
 from .block_model import AXIS_VEC, block_elements, post_texture
-from .entity_shapes import entity_shape
+from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
 from .projections import block_color, family
 from .textures import TextureBank, tint_for
@@ -293,11 +293,43 @@ def is_post_family(name):
     return is_fence(name) or is_pane(name) or is_wall(name) or is_bars(name)
 
 
+def instance_groups(src, state, index, name):
+    own = state == index
+    by_signature = {}
+    for pos in map(tuple, np.argwhere(own)):
+        by_signature.setdefault(nbt_signature(name, src.block_nbt.get(pos)), []).append(pos)
+    groups = {}
+    for signature, positions in by_signature.items():
+        mask = np.zeros_like(own)
+        mask[tuple(np.array(positions).T)] = True
+        groups[signature] = mask
+    return groups
+
+
+def resolve_special_parts(shape, bank, atlas):
+    parts = []
+    for part in shape:
+        if part["faces"]:
+            rect_by_face = {}
+            for direction, crop in part["faces"].items():
+                image = bank.read_asset(part["texture"], part["tint"], crop, part["alpha"])
+                if image is not None:
+                    rect_by_face[direction] = atlas.add(image)
+            if rect_by_face:
+                parts.append({**part, "rect_by_face": rect_by_face})
+            continue
+        image = bank.read_asset(part["texture"], part["tint"], part["crop"], part["alpha"])
+        if image is not None:
+            parts.append({**part, "rect_index": atlas.add(image)})
+    return parts
+
+
 def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     atlas = Atlas()
     resolved = {}
     generic = {}
     specials = {}
+    special_masks = {}
     element_texture_cache = {}
 
     def element_rect_index(texture_name, tinted, block_name, props):
@@ -318,23 +350,25 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 resolved[index] = {key: atlas.add(image) for key, image in faces.items()}
             continue
         elements = block_elements(name, props)
+        if nbt_sensitive(name):
+            groups = instance_groups(src, state, index, name)
+            if set(groups) != {None}:
+                for signature, mask in groups.items():
+                    group_shape = (
+                        entity_decoration(name, props, signature) if elements
+                        else entity_shape(name, props, signature)
+                    )
+                    parts = resolve_special_parts(group_shape, bank, atlas)
+                    if parts:
+                        specials[(index, signature)] = parts
+                        special_masks[(index, signature)] = mask
+                if not elements:
+                    continue
         shape = entity_shape(name, props) if not elements or name == "minecraft:bell" else None
         if shape is not None:
-            parts = []
-            for part in shape:
-                if part["faces"]:
-                    rect_by_face = {}
-                    for direction, crop in part["faces"].items():
-                        image = bank.read_asset(part["texture"], part["tint"], crop, part["alpha"])
-                        if image is not None:
-                            rect_by_face[direction] = atlas.add(image)
-                    if rect_by_face:
-                        parts.append({**part, "rect_by_face": rect_by_face})
-                    continue
-                image = bank.read_asset(part["texture"], part["tint"], part["crop"], part["alpha"])
-                if image is not None:
-                    parts.append({**part, "rect_index": atlas.add(image)})
+            parts = resolve_special_parts(shape, bank, atlas)
             specials[index] = parts
+            special_masks[index] = state == index
         if elements == []:
             if name in ("minecraft:water", "minecraft:lava", "minecraft:bubble_column"):
                 elements = None
@@ -435,11 +469,11 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         elif name == "minecraft:lava":
             lava_mask |= state == index
 
-    for index, parts in specials.items():
-        own = state == index
+    for key, parts in specials.items():
+        own = special_masks[key]
         if not own.any():
             continue
-        name = index_names[index]
+        name = index_names[key[0] if isinstance(key, tuple) else key]
         for part in parts:
             lo, hi = part["lo"], part["hi"]
             corners = rotate_y(box_corners(lo, hi), part["angle"])
@@ -552,7 +586,8 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 append(pos, CUBE_CORNERS[CUBE_FACES[direction]], uv_for_rect(rect))
 
     flat_entities = []
-    textured_indices = set(resolved) | set(generic) | set(specials)
+    special_indices = {key[0] if isinstance(key, tuple) else key for key in specials}
+    textured_indices = set(resolved) | set(generic) | special_indices
     if not points_all:
         return [], flat_entities, textured_indices, occluder
 

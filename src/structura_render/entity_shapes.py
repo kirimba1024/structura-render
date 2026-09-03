@@ -1,5 +1,13 @@
 """Compact models for blocks rendered outside block-model JSON."""
 
+import json
+from functools import lru_cache
+
+import numpy as np
+from PIL import Image
+
+from .assets import ASSETS
+
 DYES = {
     "white": (249, 255, 254), "orange": (249, 128, 29),
     "magenta": (199, 78, 189), "light_blue": (58, 179, 218),
@@ -34,6 +42,85 @@ def colored(base, suffix):
     return next((color for color in DYES if base == f"{color}_{suffix}"), None)
 
 
+FONT_GRID = 16
+FONT_CELL = 8
+
+
+@lru_cache(maxsize=1)
+def _ascii_widths():
+    image = Image.open(ASSETS / "textures" / "font" / "ascii.png").convert("RGBA")
+    alpha = np.asarray(image)[:, :, 3]
+    widths = []
+    for code in range(FONT_GRID * FONT_GRID):
+        row, col = divmod(code, FONT_GRID)
+        cell = alpha[
+            row * FONT_CELL:(row + 1) * FONT_CELL, col * FONT_CELL:(col + 1) * FONT_CELL,
+        ]
+        ink = np.argwhere(cell > 0)
+        widths.append(int(ink[:, 1].max()) + 1 if len(ink) else 0)
+    return widths
+
+
+SPACE_ADVANCE = 3
+
+
+def glyph_metrics(code):
+    if code == ord(" "):
+        return SPACE_ADVANCE, None
+    widths = _ascii_widths()
+    if not 0 <= code < len(widths) or widths[code] == 0:
+        code = ord("?")
+    width = widths[code]
+    row, col = divmod(code, FONT_GRID)
+    left, top = col * FONT_CELL, row * FONT_CELL
+    return width + 1, (left, top, left + width, top + FONT_CELL)
+
+
+def _sign_side(component):
+    lines = []
+    for raw in component.get("messages", []):
+        raw = str(raw)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = raw
+        lines.append(parsed if isinstance(parsed, str) else str(parsed.get("text", "")))
+    if not any(lines):
+        return None
+    color = str(component.get("color", "black"))
+    return (tuple(lines), color if color in DYES else "black", bool(component.get("has_glowing_text", 0)))
+
+
+def nbt_sensitive(name):
+    base = name.split(":", 1)[-1]
+    return base.endswith(("_sign", "_hanging_sign")) or "banner" in base
+
+
+def nbt_signature(name, nbt):
+    if nbt is None:
+        return None
+    base = name.split(":", 1)[-1]
+    if base.endswith(("_sign", "_hanging_sign")):
+        sides = {}
+        for side in ("front_text", "back_text"):
+            if side in nbt:
+                parsed = _sign_side(nbt[side])
+                if parsed:
+                    sides[side] = parsed
+        return ("sign", tuple(sorted(sides.items()))) if sides else None
+    if "banner" in base and "patterns" in nbt:
+        layers = []
+        for entry in nbt["patterns"]:
+            if "pattern" not in entry or "color" not in entry:
+                continue
+            pattern = str(entry["pattern"]).rsplit(":", 1)[-1]
+            color = str(entry["color"])
+            if color in DYES:
+                layers.append((pattern, color))
+        return ("banner", tuple(layers)) if layers else None
+    return None
+
+
 def chest_texture(base, chest_type):
     side = f"_{chest_type}" if chest_type in ("left", "right") else ""
     if base == "ender_chest":
@@ -62,28 +149,96 @@ def chest(base, props):
     ]
 
 
-def sign(base, props):
+SIGN_LINES = 4
+SIGN_INSET_X = 1.5 / 16
+SIGN_INSET_Y = 1 / 16
+SIGN_NATURAL_SCALE = (1 / 16) / 6
+TEXT_DEPTH = 0.4 / 16
+
+
+def _text_line_boxes(lines, board_lo, board_hi, face_z, direction, tint, angle):
+    boxes = []
+    x_lo, x_hi = board_lo[0] + SIGN_INSET_X, board_hi[0] - SIGN_INSET_X
+    y_lo, y_hi = board_lo[1] + SIGN_INSET_Y, board_hi[1] - SIGN_INSET_Y
+    usable_width = max(x_hi - x_lo, 0.01)
+    band = (y_hi - y_lo) / SIGN_LINES
+    z0, z1 = (face_z, face_z + TEXT_DEPTH) if direction > 0 else (face_z - TEXT_DEPTH, face_z)
+    center_x = (x_lo + x_hi) / 2
+    for row, line in enumerate(lines[:SIGN_LINES]):
+        metrics = [glyph_metrics(ord(ch) if ord(ch) < 256 else ord("?")) for ch in line]
+        pixel_total = sum(advance for advance, _ in metrics) - 1 if metrics else 0
+        scale = SIGN_NATURAL_SCALE if pixel_total <= 0 else min(SIGN_NATURAL_SCALE, usable_width / pixel_total)
+        glyph_h = FONT_CELL * scale
+        top = y_hi - row * band - (band - glyph_h) / 2
+        bottom = top - glyph_h
+        cursor = center_x - direction * (pixel_total * scale) / 2
+        for advance, crop in metrics:
+            if crop is not None:
+                edge = cursor + direction * (advance - 1) * scale
+                boxes.append(box(
+                    (min(cursor, edge), bottom, z0), (max(cursor, edge), top, z1),
+                    "font/ascii", crop, tint, angle=angle,
+                ))
+            cursor += direction * advance * scale
+    return boxes
+
+
+def sign_text_boxes(content, board_lo, board_hi, angle, back):
+    boxes = []
+    sides = [("front_text", board_hi[2], 1)]
+    if back:
+        sides.append(("back_text", board_lo[2], -1))
+    for side, face_z, direction in sides:
+        parsed = content.get(side)
+        if not parsed:
+            continue
+        lines, color, _glow = parsed
+        boxes.extend(_text_line_boxes(lines, board_lo, board_hi, face_z, direction, DYES[color], angle))
+    return boxes
+
+
+def sign_board_bounds(base):
+    wall = "_wall_" in base
+    if "hanging_sign" in base:
+        return (2 / 16, 3 / 16, 7 / 16), (14 / 16, 12 / 16, 9 / 16), wall
+    if wall:
+        return (0, 5 / 16, 14 / 16), (1, 12 / 16, 1), wall
+    return (2 / 16, 8 / 16, 7 / 16), (14 / 16, 14 / 16, 9 / 16), wall
+
+
+def sign(base, props, content=None):
     wall = "_wall_" in base
     hanging = "hanging_sign" in base
     wood = base.split("_wall", 1)[0].split("_hanging", 1)[0].removesuffix("_sign")
     texture = f"entity/signs/{'hanging/' if hanging else ''}{wood}"
     angle = angle_for(props)
+    board_lo, board_hi, wall = sign_board_bounds(base)
     if hanging:
-        return [
-            box(
-                (2 / 16, 3 / 16, 7 / 16), (14 / 16, 12 / 16, 9 / 16), texture,
-                (0, 12, 32, 24), angle=angle,
-            ),
+        result = [
+            box(board_lo, board_hi, texture, (0, 12, 32, 24), angle=angle),
             box((3 / 16, 12 / 16, 7 / 16), (4 / 16, 1, 9 / 16), "block/chain", angle=angle),
             box((12 / 16, 12 / 16, 7 / 16), (13 / 16, 1, 9 / 16), "block/chain", angle=angle),
         ]
-    board = ((0, 5 / 16, 14 / 16), (1, 12 / 16, 1)) if wall else ((2 / 16, 8 / 16, 7 / 16), (14 / 16, 14 / 16, 9 / 16))
-    result = [box(*board, texture, (0, 0, 24, 14), angle=angle)]
-    if not wall:
-        result.append(
-            box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 8 / 16, 8.5 / 16), texture, (0, 16, 8, 30), angle=angle),
-        )
+    else:
+        result = [box(board_lo, board_hi, texture, (0, 0, 24, 14), angle=angle)]
+        if not wall:
+            result.append(
+                box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 8 / 16, 8.5 / 16), texture, (0, 16, 8, 30), angle=angle),
+            )
+    if content:
+        result.extend(sign_text_boxes(content, board_lo, board_hi, angle, back=not wall))
     return result
+
+
+def entity_decoration(name, props, content):
+    base = name.split(":", 1)[-1]
+    if base.endswith(("_sign", "_hanging_sign")):
+        sides = content[1] if content and content[0] == "sign" else None
+        if not sides:
+            return []
+        board_lo, board_hi, wall = sign_board_bounds(base)
+        return sign_text_boxes(dict(sides), board_lo, board_hi, angle_for(props), back=not wall)
+    return []
 
 
 # The entity skin's head cube, unwrapped: front/back/top/bottom/right/left
@@ -127,7 +282,15 @@ def copper_golem(base, props):
     ]
 
 
-def entity_shape(name, props):
+BANNER_LAYER_STEP = 0.15 / 16
+
+
+def _grown_cloth(cloth, amount):
+    lo, hi = cloth
+    return (lo[0], lo[1], lo[2] - amount), (hi[0], hi[1], hi[2] + amount)
+
+
+def entity_shape(name, props, content=None):
     base = name.split(":", 1)[-1]
     if name in INVISIBLE:
         return []
@@ -149,11 +312,19 @@ def entity_shape(name, props):
             if wall else ((2 / 16, 2 / 16, 7.5 / 16), (14 / 16, 14 / 16, 8.5 / 16))
         )
         result = [box(*cloth, "entity/banner/banner_base", (1, 1, 21, 41), DYES[color], angle=angle)]
+        layers = content[1] if content and content[0] == "banner" else ()
+        for i, (pattern, layer_color) in enumerate(layers, start=1):
+            layer_cloth = _grown_cloth(cloth, i * BANNER_LAYER_STEP)
+            result.append(box(
+                *layer_cloth, f"entity/banner/{pattern}", (1, 1, 21, 41),
+                DYES[layer_color], angle=angle,
+            ))
         if not wall:
             result.append(box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 1, 8.5 / 16), "block/oak_planks", angle=angle))
         return result
     if base.endswith(("_sign", "_hanging_sign")):
-        return sign(base, props)
+        sides = content[1] if content and content[0] == "sign" else None
+        return sign(base, props, dict(sides) if sides else None)
     color = colored(base, "shulker_box")
     if base == "shulker_box" or color:
         texture = f"entity/shulker/shulker{f'_{color}' if color else ''}"

@@ -76,6 +76,18 @@ def is_fence_gate(name):
     return name.split(":", 1)[-1].endswith("_fence_gate")
 
 
+def normalize_legacy(name, props):
+    if name == "minecraft:double_stone_slab2":
+        return "minecraft:red_sandstone", {}
+    if name == "minecraft:stone_slab2":
+        return "minecraft:red_sandstone_slab", {("type" if k == "half" else k): v for k, v in props.items()}
+    return {
+        "minecraft:grass": "minecraft:short_grass",
+        "minecraft:portal": "minecraft:nether_portal",
+        "minecraft:wooden_door": "minecraft:oak_door",
+    }.get(name, name), props
+
+
 def voxel_state(src):
     sx, sy, sz = src.size
     state = np.full((sx, sy, sz), -1, dtype=np.int32)
@@ -87,12 +99,12 @@ def voxel_state(src):
     index_names, index_props = {}, {}
     for index in np.unique(state[solid]):
         index = int(index)
-        index_names[index] = src.palette[index]
         raw = src.palette_raw[index]
-        index_props[index] = (
+        props = (
             {str(k): str(v) for k, v in raw["Properties"].items()}
             if "Properties" in raw else {}
         )
+        index_names[index], index_props[index] = normalize_legacy(src.palette[index], props)
     return state, solid, index_names, index_props
 
 

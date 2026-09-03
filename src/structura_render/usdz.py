@@ -136,18 +136,32 @@ def face_normal(points, quad):
     return normal / length if length > 0 else np.array([0.0, 1.0, 0.0])
 
 
+COINCIDENT_SEPARATION = 1 / 256
+
+
 def add_mesh(stage, root, name, points, faces, uv, material, center):
     mesh = UsdGeom.Mesh.Define(stage, root.AppendPath(name))
-    mesh.CreatePointsAttr([
-        Gf.Vec3f(float(p[0] - center[0]), float(p[1] - center[1]), float(p[2] - center[2]))
-        for p in points
-    ])
+    points = np.asarray(points, dtype=np.float64).copy()
     quads = [tuple(int(v) for v in faces[i + 1:i + 5]) for i in range(0, len(faces), 5)]
-    rounded = np.round(np.asarray(points, dtype=np.float64), 4)
+    rounded = np.round(points, 4)
     quad_keys = [frozenset(tuple(rounded[i]) for i in quad) for quad in quads]
     coverage = {}
     for key in quad_keys:
         coverage[key] = coverage.get(key, 0) + 1
+
+    first_normal = {}
+    for i, (quad, key) in enumerate(zip(quads, quad_keys)):
+        if coverage[key] < 2:
+            continue
+        normal = face_normal(points, quad)
+        if key not in first_normal:
+            first_normal[key] = normal
+        elif np.dot(normal, first_normal[key]) > 0:
+            quads[i] = quad[::-1]
+
+    for quad, key in zip(quads, quad_keys):
+        if coverage[key] >= 2:
+            points[list(quad)] += face_normal(points, quad) * COINCIDENT_SEPARATION
 
     counts = []
     indices = []
@@ -161,6 +175,10 @@ def add_mesh(stage, root, name, points, faces, uv, material, center):
             counts.append(4)
             indices.extend(quad[::-1])
             normals.append(Gf.Vec3f(*(-normal)))
+    mesh.CreatePointsAttr([
+        Gf.Vec3f(float(p[0] - center[0]), float(p[1] - center[1]), float(p[2] - center[2]))
+        for p in points
+    ])
     mesh.CreateFaceVertexCountsAttr(counts)
     mesh.CreateFaceVertexIndicesAttr(indices)
     mesh.CreateNormalsAttr(normals)

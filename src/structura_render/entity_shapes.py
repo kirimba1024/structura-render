@@ -70,14 +70,19 @@ def sign(base, props):
     angle = angle_for(props)
     if hanging:
         return [
-            box((2 / 16, 3 / 16, 7 / 16), (14 / 16, 12 / 16, 9 / 16), texture, angle=angle),
+            box(
+                (2 / 16, 3 / 16, 7 / 16), (14 / 16, 12 / 16, 9 / 16), texture,
+                (0, 12, 32, 24), angle=angle,
+            ),
             box((3 / 16, 12 / 16, 7 / 16), (4 / 16, 1, 9 / 16), "block/chain", angle=angle),
             box((12 / 16, 12 / 16, 7 / 16), (13 / 16, 1, 9 / 16), "block/chain", angle=angle),
         ]
     board = ((0, 5 / 16, 14 / 16), (1, 12 / 16, 1)) if wall else ((2 / 16, 8 / 16, 7 / 16), (14 / 16, 14 / 16, 9 / 16))
-    result = [box(*board, texture, angle=angle)]
+    result = [box(*board, texture, (0, 0, 24, 14), angle=angle)]
     if not wall:
-        result.append(box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 8 / 16, 8.5 / 16), texture, angle=angle))
+        result.append(
+            box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 8 / 16, 8.5 / 16), texture, (0, 16, 8, 30), angle=angle),
+        )
     return result
 
 

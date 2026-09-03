@@ -1,4 +1,5 @@
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,19 @@ from structura_core import Structure
 from .legacy_input import as_structure_nbt
 from .mesh import build_textured_meshes, export_parts, flat_block_groups, voxel_state
 from .textures import TextureBank
+
+
+def add_alpha_maps(obj_path):
+    obj_text = obj_path.read_text()
+    mtllib = re.search(r"^mtllib (.+)$", obj_text, re.MULTILINE)
+    if not mtllib:
+        return
+    mtl_path = obj_path.parent / mtllib.group(1)
+    mtl_text = mtl_path.read_text()
+    mtl_text = re.sub(
+        r"^(map_Kd (.+))$", r"\1\nmap_d \2", mtl_text, flags=re.MULTILINE,
+    )
+    mtl_path.write_text(mtl_text)
 
 
 def main():
@@ -40,6 +54,7 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     resolver = trimesh.resolvers.FilePathResolver(str(out_path.parent))
     scene.export(str(out_path), resolver=resolver, write_texture=True)
+    add_alpha_maps(out_path)
     print(f"{out_path} parts={len(parts)}")
 
 

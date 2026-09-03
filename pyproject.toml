@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.1.0"
-description = "Minecraft block-model resolution, image rendering and USDZ export"
+version = "0.2.0"
+description = "Minecraft block-model resolution, image rendering and 3D export (USDZ/glTF/OBJ/STL)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
@@ -18,12 +18,18 @@ dependencies = [
 [project.optional-dependencies]
 hero = ["pyvista>=0.46,<0.47"]
 usdz = ["pyvista>=0.46,<0.47", "usd-core>=26,<27"]
+gltf = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
+obj = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
+stl = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
 legacy = ["structura-core[legacy]>=0.1.0,<0.2"]
 
 [project.scripts]
 structura-render-projections = "structura_render.projections:main"
 structura-render-hero = "structura_render.hero:main"
 structura-export-usdz = "structura_render.usdz:main"
+structura-export-gltf = "structura_render.gltf:main"
+structura-export-obj = "structura_render.obj:main"
+structura-export-stl = "structura_render.stl:main"
 structura-package-usdz-variants = "structura_render.usdz_variants:main"
 structura-build-full-cube-list = "structura_render.build_full_cube_list:main"
 structura-build-opaque-blocks = "structura_render.build_opaque_blocks:main"

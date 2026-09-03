@@ -13,10 +13,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, UsdUtils
 from structura_core import Structure
 
 from .legacy_input import as_structure_nbt
-from .mesh import (
-    AXIS_VEC, CUBE_FACES, box_corners, build_textured_meshes, flat_rgba, shift_toward,
-    voxel_state,
-)
+from .mesh import build_textured_meshes, flat_rgba, mask_surface, upscale_atlas, voxel_state
 from .textures import TextureBank
 
 GROUND_LEVEL_COLOR = (1.0, 0.35, 0.65)
@@ -72,26 +69,6 @@ def build_flat_material(stage, root, name, color, opacity):
     shader.CreateInput("opacity", Sdf.ValueTypeNames.Float).Set(opacity)
     material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
     return material
-
-
-def mask_surface(mask, occluder=None, lift=0.0):
-    occluder = mask if occluder is None else occluder
-    points, faces = [], []
-    for direction in CUBE_FACES:
-        exposed = mask & ~shift_toward(occluder, direction)
-        positions = np.argwhere(exposed).astype(np.float32)
-        if len(positions) == 0:
-            continue
-        offsets = box_corners((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))[CUBE_FACES[direction]]
-        quad_points = (positions[:, None, :] + offsets[None, :, :]).reshape(-1, 3)
-        if lift:
-            quad_points = quad_points + np.asarray(AXIS_VEC[direction], dtype=np.float32) * lift
-        base = len(points)
-        points.extend(quad_points.tolist())
-        for i in range(len(positions)):
-            start = base + i * 4
-            faces.append([start, start + 1, start + 2, start + 3])
-    return points, faces
 
 
 def add_flat_mesh(stage, root, name, points, faces, material, center):
@@ -238,11 +215,7 @@ def main():
         if meshes:
             mesh_obj, texture = meshes[0]
             texture_path = tmp / "atlas.png"
-            atlas_image = Image.fromarray(texture.to_array())
-            scale = 8
-            atlas_image = atlas_image.resize(
-                (atlas_image.width * scale, atlas_image.height * scale), Image.NEAREST,
-            )
+            atlas_image = upscale_atlas(Image.fromarray(texture.to_array()))
             atlas_image.save(texture_path)
             material = build_material(stage, root, "atlas.png")
             add_mesh(

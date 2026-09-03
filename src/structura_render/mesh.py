@@ -2,6 +2,8 @@
 
 import numpy as np
 import pyvista as pv
+import trimesh
+from PIL import Image
 
 from structura_core import AIR_NAMES, Structure
 
@@ -559,3 +561,108 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     if texture is None:
         raise RuntimeError("textured geometry was built without an atlas")
     return [(mesh, texture)], flat_entities, textured_indices, occluder
+
+
+def mask_surface(mask, occluder=None, lift=0.0):
+    occluder = mask if occluder is None else occluder
+    points, faces = [], []
+    for direction in CUBE_FACES:
+        exposed = mask & ~shift_toward(occluder, direction)
+        positions = np.argwhere(exposed).astype(np.float32)
+        if len(positions) == 0:
+            continue
+        offsets = box_corners((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))[CUBE_FACES[direction]]
+        quad_points = (positions[:, None, :] + offsets[None, :, :]).reshape(-1, 3)
+        if lift:
+            quad_points = quad_points + np.asarray(AXIS_VEC[direction], dtype=np.float32) * lift
+        base = len(points)
+        points.extend(quad_points.tolist())
+        for i in range(len(positions)):
+            start = base + i * 4
+            faces.append([start, start + 1, start + 2, start + 3])
+    return points, faces
+
+
+def flat_block_groups(state, index_names, textured_indices, occluder):
+    flat_solid = np.zeros_like(occluder)
+    for index in index_names:
+        if index not in textured_indices:
+            flat_solid |= state == index
+    combined_occluder = occluder | flat_solid
+
+    color_masks = {}
+    for index, name in index_names.items():
+        if index in textured_indices:
+            continue
+        color = flat_rgba(name)
+        mask = state == index
+        color_masks[color] = color_masks.get(color, np.zeros_like(mask)) | mask
+
+    groups = []
+    for color, mask in color_masks.items():
+        points, faces = mask_surface(mask, combined_occluder)
+        if points:
+            groups.append((color, points, faces))
+    return groups
+
+
+def vtk_quads(faces):
+    return np.asarray(faces, dtype=np.int64).reshape(-1, 5)[:, 1:5]
+
+
+def triangulate_quads(quads):
+    quads = np.asarray(quads, dtype=np.int64)
+    if len(quads) == 0:
+        return quads.reshape(0, 3)
+    tris = np.empty((len(quads), 2, 3), dtype=quads.dtype)
+    tris[:, 0] = quads[:, [0, 1, 2]]
+    tris[:, 1] = quads[:, [0, 2, 3]]
+    return tris.reshape(-1, 3)
+
+
+ATLAS_UPSCALE = 8
+
+
+def upscale_atlas(image):
+    return image.resize(
+        (image.width * ATLAS_UPSCALE, image.height * ATLAS_UPSCALE), Image.NEAREST,
+    )
+
+
+def double_sided_triangles(tris):
+    tris = np.asarray(tris, dtype=np.int64)
+    if len(tris) == 0:
+        return tris
+    return np.concatenate([tris, tris[:, [0, 2, 1]]], axis=0)
+
+
+def double_sided_trimesh(points, tris, visual=None):
+    return trimesh.Trimesh(
+        vertices=points, faces=double_sided_triangles(tris), visual=visual, process=False,
+    )
+
+
+def export_parts(meshes, flat_groups, center):
+    parts = []
+    if meshes:
+        mesh_obj, texture = meshes[0]
+        points = mesh_obj.points.astype(np.float32) - center
+        uv = np.asarray(mesh_obj.active_texture_coordinates, dtype=np.float32)
+        tris = triangulate_quads(vtk_quads(mesh_obj.faces))
+        image = upscale_atlas(Image.fromarray(texture.to_array()))
+        material = trimesh.visual.material.PBRMaterial(
+            baseColorTexture=image, metallicFactor=0.0, roughnessFactor=1.0,
+            alphaMode="MASK", alphaCutoff=0.5,
+        )
+        visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
+        parts.append(("Blocks", double_sided_trimesh(points, tris, visual)))
+
+    for index, (color, points, faces) in enumerate(flat_groups):
+        pts = np.asarray(points, dtype=np.float32) - center
+        tris = triangulate_quads(faces)
+        part = double_sided_trimesh(pts, tris)
+        part.visual = trimesh.visual.ColorVisuals(
+            part, face_colors=np.tile(color, (len(part.faces), 1)),
+        )
+        parts.append((f"Flat{index}", part))
+    return parts

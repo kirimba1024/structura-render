@@ -436,7 +436,8 @@ def entity_shape(name, props, content=None):
             ))
         if not wall:
             result.append(box(
-                (centre - post, 0, centre - post), (centre + post, pole_height, centre + post),
+                (centre - post, 0, centre - post),
+                (centre + post, pole_height - _banner_px(2), centre + post),
                 "entity/banner/banner_base", angle=angle,
                 faces=cube_faces((44, 0), (2, 42, 2)),
             ))

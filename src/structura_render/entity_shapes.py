@@ -227,9 +227,15 @@ def _text_line_boxes(lines, board_lo, board_hi, face_z, direction, tint, angle):
     return boxes
 
 
-def sign_text_boxes(content, board_lo, board_hi, angle, back):
+def sign_text_boxes(content, board_lo, board_hi, angle, back, wall=False):
     boxes = []
-    sides = [("front_text", board_hi[2], 1)]
+    # A wall sign's board hangs on the near half of its block and is read from
+    # that side, so its front is the low-z face; a standing sign's board sits
+    # in the middle and is read from the high-z one. Reading the front off the
+    # wrong face puts the text inside the wall, which looks like no text at
+    # all rather than like a mistake.
+    sides = ([("front_text", board_lo[2], -1)] if wall
+             else [("front_text", board_hi[2], 1)])
     if back:
         sides.append(("back_text", board_lo[2], -1))
     for side, face_z, direction in sides:
@@ -257,7 +263,11 @@ def sign_board_bounds(base):
     if "hanging_sign" in base:
         return (1 / 16, 2 / 16, 7 / 16), (15 / 16, 12 / 16, 9 / 16), wall
     if wall:
-        return (0, 5 / 16, 14 / 16), (1, 12 / 16, 1), wall
+        # On the north half, not the south: angle_for maps facing=north to 0,
+        # so the unrotated board has to sit where a north-facing sign sits.
+        # On the far half it ended up behind its own block after the turn,
+        # with the text reading into the wall.
+        return (0, 5 / 16, 0), (1, 12 / 16, 2 / 16), wall
     return (2 / 16, 8 / 16, 7 / 16), (14 / 16, 14 / 16, 9 / 16), wall
 
 
@@ -284,7 +294,7 @@ def sign(base, props, content=None):
                 angle=angle, faces=cube_faces((0, 14), (2, 14, 2)),
             ))
     if content:
-        result.extend(sign_text_boxes(content, board_lo, board_hi, angle, back=not wall))
+        result.extend(sign_text_boxes(content, board_lo, board_hi, angle, back=not wall, wall=wall))
     return result
 
 
@@ -295,7 +305,7 @@ def entity_decoration(name, props, content):
         if not sides:
             return []
         board_lo, board_hi, wall = sign_board_bounds(base)
-        return sign_text_boxes(dict(sides), board_lo, board_hi, angle_for(props), back=not wall)
+        return sign_text_boxes(dict(sides), board_lo, board_hi, angle_for(props), back=not wall, wall=wall)
     return []
 
 
@@ -347,7 +357,12 @@ def bed(color, props):
         "north": outer if head_end else inner,
         "south": inner if head_end else outer,
     }
-    result = [box((0, 3 / 16, 0), (1, 9 / 16, 1), texture, angle=angle, faces=faces)]
+    body = box((0, 3 / 16, 0), (1, 9 / 16, 1), texture, angle=angle, faces=faces)
+    # The long sides are stored upright in the sheet -- a 6x16 strip for a
+    # face that is 16 long and 6 tall once the box is laid down -- so they
+    # are the two faces the quarter turn also turns.
+    body["face_rotation"] = {"west": 90, "east": -90}
+    result = [body]
     for index, (x, z) in enumerate(((0, 0), (13, 0), (0, 13), (13, 13))):
         result.append(box(
             (x / 16, 0, z / 16), ((x + 3) / 16, 3 / 16, (z + 3) / 16), texture,
@@ -464,13 +479,21 @@ def entity_shape(name, props, content=None):
     if name == "minecraft:conduit":
         return [box((5 / 16, 5 / 16, 5 / 16), (11 / 16, 11 / 16, 11 / 16), "entity/conduit/base", (0, 0, 16, 16))]
     if name == "minecraft:decorated_pot":
-        # Same as the bed: the pot's own neck/body split and its sherd faces
-        # are not derivable from the pack, and guessing produced holes.
+        # decorated_pot_base is not one box unwrap but a hand-laid sheet:
+        # the neck's own 8x4x8 unwrap sits at (0, 0) -- its two 8x8 openings
+        # side by side with the wall band under them -- and the body's top
+        # and bottom are the two 14x14 squares below it. The body's four
+        # walls come from the side sherd, which is a square meant for one
+        # wall rather than an unwrap, so it goes on each of them as itself.
+        base = "entity/decorated_pot/decorated_pot_base"
+        sherd = "entity/decorated_pot/decorated_pot_side"
+        wall_faces = {face: (0, 0, 16, 16) for face in ("north", "south", "east", "west")}
         return [
-            box((1 / 16, 0, 1 / 16), (15 / 16, 12 / 16, 15 / 16),
-                "entity/decorated_pot/decorated_pot_side"),
-            box((4 / 16, 12 / 16, 4 / 16), (12 / 16, 1, 12 / 16),
-                "entity/decorated_pot/decorated_pot_base", (0, 0, 16, 16)),
+            box((1 / 16, 0, 1 / 16), (15 / 16, 12 / 16, 15 / 16), sherd, faces=wall_faces),
+            box((1 / 16, 11.5 / 16, 1 / 16), (15 / 16, 12 / 16, 15 / 16), base,
+                faces={"up": (0, 15, 14, 29), "down": (14, 15, 28, 29)}),
+            box((4 / 16, 12 / 16, 4 / 16), (12 / 16, 1, 12 / 16), base,
+                faces=cube_faces((0, 0), (8, 4, 8))),
         ]
     if name in ("minecraft:end_portal", "minecraft:end_gateway"):
         portal = name.endswith("end_portal")

@@ -324,10 +324,14 @@ def resolve_special_parts(shape, bank, atlas):
     for part in shape:
         if part["faces"]:
             rect_by_face = {}
+            spin = part.get("face_rotation") or {}
             for direction, crop in part["faces"].items():
                 image = bank.read_asset(part["texture"], part["tint"], crop, part["alpha"])
-                if image is not None:
-                    rect_by_face[direction] = atlas.add(image)
+                if image is None:
+                    continue
+                if spin.get(direction):
+                    image = image.rotate(spin[direction], expand=True)
+                rect_by_face[direction] = atlas.add(image)
             if rect_by_face:
                 parts.append({**part, "rect_by_face": rect_by_face})
             continue

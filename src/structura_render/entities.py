@@ -23,7 +23,7 @@ from .entity_shapes import box
 
 FACINGS = ("south", "west", "north", "east")
 AXIS = {"south": (2, 1), "north": (2, -1), "east": (0, 1), "west": (0, -1)}
-DEPTH = 1 / 16
+DEPTH = 1 / 16  # stands proud of the block it hangs on, not flush with it
 FRAME_SIDE = 12 / 16
 
 
@@ -80,8 +80,20 @@ def _span(width, height, facing):
     hi[across] = lo[across] + width
     lo[1] = -((height - 1) // 2)
     hi[1] = lo[1] + height
-    lo[axis], hi[axis] = (1 - DEPTH, 1.0) if sign > 0 else (0.0, DEPTH)
+    lo[axis], hi[axis] = (1.0, 1.0 + DEPTH) if sign > 0 else (-DEPTH, 0.0)
     return tuple(lo), tuple(hi)
+
+
+def _facing_part(lo, hi, texture, facing):
+    """A picture drawn on its outward face only.
+
+    A painting is one image, not a cube skin, so putting it on all six faces
+    squeezes the whole picture into each 1/16 side and reads as streaks along
+    the edges. The other faces are against a wall in any case.
+    """
+    part = box(lo, hi, texture)
+    part["only_faces"] = (facing,)
+    return part
 
 
 def painting_parts(nbt):
@@ -90,8 +102,9 @@ def painting_parts(nbt):
     if size is None:
         return []
     width, height, asset = size
-    lo, hi = _span(width, height, facing_of(nbt))
-    return [box(lo, hi, f"painting/{asset}")]
+    facing = facing_of(nbt)
+    lo, hi = _span(width, height, facing)
+    return [_facing_part(lo, hi, f"painting/{asset}", facing)]
 
 
 def item_frame_parts(nbt, glowing):
@@ -109,9 +122,9 @@ def item_frame_parts(nbt, glowing):
     lo = [inset, inset, inset]
     hi = [inset + FRAME_SIDE, inset + FRAME_SIDE, inset + FRAME_SIDE]
     lo[across], hi[across] = inset, inset + FRAME_SIDE
-    lo[axis], hi[axis] = (1 - DEPTH, 1.0) if sign > 0 else (0.0, DEPTH)
+    lo[axis], hi[axis] = (1.0, 1.0 + DEPTH) if sign > 0 else (-DEPTH, 0.0)
     texture = "block/glow_item_frame" if glowing else "block/item_frame"
-    return [box(tuple(lo), tuple(hi), texture)]
+    return [_facing_part(tuple(lo), tuple(hi), texture, facing)]
 
 
 HANDLERS = {

@@ -608,7 +608,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     for anchor, part, rect_index in entity_geometry:
         origin = np.array([anchor], dtype=np.float32)
         corners = box_corners(part["lo"], part["hi"])
-        for direction in CUBE_FACES:
+        for direction in part.get("only_faces") or CUBE_FACES:
             append(origin, corners[CUBE_FACES[direction]], uv_for_rect(rects[rect_index]))
 
     flat_entities = []

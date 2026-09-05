@@ -173,6 +173,9 @@ BOXES = [
      (6, 1, 6), HALF_TURN_X, 0.2),
     ("pot disc", POT_BASE @ part_pose(1, 16, 1), (-14, 13), (0, 0, 0), (14, 0, 14),
      NO_TURN, 0),
+    ("bell body", part_pose(8, 12, 8), (0, 0), (-3, -6, -3), (6, 7, 6), NO_TURN, 0),
+    ("bell lip", part_pose(8, 12, 8) @ part_pose(-8, -12, -8), (0, 13), (4, 4, 4),
+     (8, 2, 8), NO_TURN, 0),
 ]
 
 
@@ -237,6 +240,9 @@ PLACEMENTS = [
         (SIGN_BASE, (-1, -2, -1), (2, 14, 2), 0)]),
     ("minecraft:oak_wall_sign", {"facing": FACING}, [
         (WALL_SIGN_BASE, (-12, -14, -1), (24, 12, 2), 0)]),
+    ("minecraft:bell", {"facing": FACING, "attachment": "floor"}, [
+        (part_pose(8, 12, 8), (-3, -6, -3), (6, 7, 6), 0),
+        (part_pose(8, 12, 8) @ part_pose(-8, -12, -8), (4, 4, 4), (8, 2, 8), 0)]),
     ("minecraft:red_shulker_box", {"facing": "up"}, [
         (SHULKER_BASE @ part_pose(0, 24, 0), (-8, -8, -8), (16, 8, 16), 0),
         (SHULKER_BASE @ part_pose(0, 24, 0), (-8, -16, -8), (16, 12, 16), 0)]),

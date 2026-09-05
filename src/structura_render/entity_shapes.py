@@ -568,7 +568,14 @@ def entity_shape(name, props, content=None):
             cube((0, 4, 0), (16, 12, 16), (0, 0), texture, HALF_TURN_X),
         ]
     if name == "minecraft:bell":
-        return [box((4 / 16, 3 / 16, 4 / 16), (12 / 16, 13 / 16, 12 / 16), "entity/bell/bell_body", (8, 6, 24, 22))]
+        # The hanger comes from the block model; this is the bell itself,
+        # a 6x7x6 body with its wider lip under it. The one block entity
+        # the game sets straight in, with neither a turn nor a yaw.
+        texture = "entity/bell/bell_body"
+        return [
+            cube((5, 6, 5), (6, 7, 6), (0, 0), texture, NO_TURN),
+            cube((4, 4, 4), (8, 2, 8), (0, 13), texture, NO_TURN),
+        ]
     if name == "minecraft:conduit":
         return [box((5 / 16, 5 / 16, 5 / 16), (11 / 16, 11 / 16, 11 / 16), "entity/conduit/base", (0, 0, 16, 16))]
     if name == "minecraft:decorated_pot":

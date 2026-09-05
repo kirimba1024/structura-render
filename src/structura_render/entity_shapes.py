@@ -6,6 +6,7 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image
 
+from . import font
 from .assets import ASSETS
 
 DYES = {
@@ -42,38 +43,26 @@ def colored(base, suffix):
     return next((color for color in DYES if base == f"{color}_{suffix}"), None)
 
 
-FONT_GRID = 16
-FONT_CELL = 8
 
 
-@lru_cache(maxsize=1)
-def _ascii_widths():
-    image = Image.open(ASSETS / "textures" / "font" / "ascii.png").convert("RGBA")
-    alpha = np.asarray(image)[:, :, 3]
-    widths = []
-    for code in range(FONT_GRID * FONT_GRID):
-        row, col = divmod(code, FONT_GRID)
-        cell = alpha[
-            row * FONT_CELL:(row + 1) * FONT_CELL, col * FONT_CELL:(col + 1) * FONT_CELL,
-        ]
-        ink = np.argwhere(cell > 0)
-        widths.append(int(ink[:, 1].max()) + 1 if len(ink) else 0)
-    return widths
+def _plain_text(component):
+    """A text component flattened to the characters it actually shows.
 
-
-SPACE_ADVANCE = 3
-
-
-def glyph_metrics(code):
-    if code == ord(" "):
-        return SPACE_ADVANCE, None
-    widths = _ascii_widths()
-    if not 0 <= code < len(widths) or widths[code] == 0:
-        code = ord("?")
-    width = widths[code]
-    row, col = divmod(code, FONT_GRID)
-    left, top = col * FONT_CELL, row * FONT_CELL
-    return width + 1, (left, top, left + width, top + FONT_CELL)
+    A component is a tree: its own `text` followed by its `extra` children,
+    each of which is another component. Reading only the root's `text` renders
+    a sign as blank whenever an editor wrote the line as a list or wrapped it
+    in a formatting child, which is common and gives no hint that anything
+    was lost.
+    """
+    if isinstance(component, str):
+        return component
+    if isinstance(component, list):
+        return "".join(_plain_text(child) for child in component)
+    if isinstance(component, dict):
+        return str(component.get("text", "")) + "".join(
+            _plain_text(child) for child in component.get("extra", [])
+        )
+    return ""
 
 
 def _sign_side(component):
@@ -84,7 +73,7 @@ def _sign_side(component):
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             parsed = raw
-        lines.append(parsed if isinstance(parsed, str) else str(parsed.get("text", "")))
+        lines.append(_plain_text(parsed))
     if not any(lines):
         return None
     color = str(component.get("color", "black"))
@@ -165,19 +154,19 @@ def _text_line_boxes(lines, board_lo, board_hi, face_z, direction, tint, angle):
     z0, z1 = (face_z, face_z + TEXT_DEPTH) if direction > 0 else (face_z - TEXT_DEPTH, face_z)
     center_x = (x_lo + x_hi) / 2
     for row, line in enumerate(lines[:SIGN_LINES]):
-        metrics = [glyph_metrics(ord(ch) if ord(ch) < 256 else ord("?")) for ch in line]
-        pixel_total = sum(advance for advance, _ in metrics) - 1 if metrics else 0
+        glyphs = [font.glyph(char) for char in line]
+        pixel_total = sum(advance for _, _, advance in glyphs) - 1 if glyphs else 0
         scale = SIGN_NATURAL_SCALE if pixel_total <= 0 else min(SIGN_NATURAL_SCALE, usable_width / pixel_total)
-        glyph_h = FONT_CELL * scale
+        glyph_h = font.HEIGHT * scale
         top = y_hi - row * band - (band - glyph_h) / 2
         bottom = top - glyph_h
         cursor = center_x - direction * (pixel_total * scale) / 2
-        for advance, crop in metrics:
-            if crop is not None:
+        for texture, crop, advance in glyphs:
+            if texture is not None:
                 edge = cursor + direction * (advance - 1) * scale
                 boxes.append(box(
                     (min(cursor, edge), bottom, z0), (max(cursor, edge), top, z1),
-                    "font/ascii", crop, tint, angle=angle,
+                    texture, crop, tint, angle=angle,
                 ))
             cursor += direction * advance * scale
     return boxes

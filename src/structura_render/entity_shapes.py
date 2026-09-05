@@ -110,6 +110,41 @@ def nbt_signature(name, nbt):
     return None
 
 
+
+def cube_faces(offset, size):
+    """The six crops of one entity-model box, from its texture offset.
+
+    A box of w x h x d at (u, v) unwraps into a (2d + 2w) by (d + h)
+    rectangle: top and bottom side by side along the upper edge, then the
+    four walls in a row beneath them. Handing box() a single crop instead
+    stretches that whole unwrap onto every face, which is why a chest lid
+    smeared, a bed had no shape and a banner showed holes -- the sliver of
+    texture that happened to land on a thin side was transparent.
+
+    The face names are this renderer's world directions, not the model's
+    own: yaw 0 faces south here, so the model's front is south and its left
+    is east. Verified against the head table this replaces, which resolves
+    identically for an 8x8x8 box at (0, 0).
+    """
+    u, v = offset
+    w, h, d = size
+    return {
+        "up":    (u + d,             v,     u + d + w,           v + d),
+        "down":  (u + d + w,         v,     u + d + 2 * w,       v + d),
+        "west":  (u,                 v + d, u + d,               v + d + h),
+        "south": (u + d,             v + d, u + d + w,           v + d + h),
+        "east":  (u + d + w,         v + d, u + 2 * d + w,       v + d + h),
+        "north": (u + 2 * d + w,     v + d, u + 2 * d + 2 * w,   v + d + h),
+    }
+
+
+def cube(origin, size, offset, texture, **kwargs):
+    """A box placed and unwrapped in the model's own 1/16 units."""
+    lo = tuple(value / 16 for value in origin)
+    hi = tuple((o + s) / 16 for o, s in zip(origin, size))
+    return box(lo, hi, texture, faces=cube_faces(offset, size), **kwargs)
+
+
 def chest_texture(base, chest_type):
     side = f"_{chest_type}" if chest_type in ("left", "right") else ""
     if base == "ender_chest":
@@ -129,12 +164,12 @@ def chest(base, props):
     chest_type = props.get("type", "single")
     texture = chest_texture(base, chest_type)
     angle = angle_for(props)
-    left = 0 if chest_type == "left" else 1 / 16
-    right = 1 if chest_type == "right" else 15 / 16
+    left = 0 if chest_type == "left" else 1
+    width = 16 if chest_type in ("left", "right") else 14
     return [
-        box((left, 0, 1 / 16), (right, 10 / 16, 15 / 16), texture, (14, 33, 28, 43), angle=angle),
-        box((left, 10 / 16, 1 / 16), (right, 14 / 16, 15 / 16), texture, (14, 14, 28, 19), angle=angle),
-        box((7 / 16, 7 / 16, 0), (9 / 16, 11 / 16, 2 / 16), texture, (1, 1, 3, 5), angle=angle),
+        cube((left, 0, 1), (width, 10, 14), (0, 19), texture, angle=angle),
+        cube((left, 10, 1), (width, 5, 14), (0, 0), texture, angle=angle),
+        cube((7, 7, 0), (2, 4, 1), (0, 0), texture, angle=angle),
     ]
 
 
@@ -161,12 +196,13 @@ def _text_line_boxes(lines, board_lo, board_hi, face_z, direction, tint, angle):
         top = y_hi - row * band - (band - glyph_h) / 2
         bottom = top - glyph_h
         cursor = center_x - direction * (pixel_total * scale) / 2
+        outward = "south" if direction > 0 else "north"
         for texture, crop, advance in glyphs:
             if texture is not None:
                 edge = cursor + direction * (advance - 1) * scale
                 boxes.append(box(
                     (min(cursor, edge), bottom, z0), (max(cursor, edge), top, z1),
-                    texture, crop, tint, angle=angle,
+                    texture, tint=tint, angle=angle, faces={outward: crop},
                 ))
             cursor += direction * advance * scale
     return boxes
@@ -215,16 +251,19 @@ def sign(base, props, content=None):
     board_lo, board_hi, wall = sign_board_bounds(base)
     if hanging:
         result = [
-            box(board_lo, board_hi, texture, (0, 12, 32, 24), angle=angle),
+            box(board_lo, board_hi, texture, angle=angle,
+                faces=cube_faces((0, 12), (14, 10, 2))),
             box((3 / 16, 12 / 16, 7 / 16), (4 / 16, 1, 9 / 16), "block/chain", angle=angle),
             box((12 / 16, 12 / 16, 7 / 16), (13 / 16, 1, 9 / 16), "block/chain", angle=angle),
         ]
     else:
-        result = [box(board_lo, board_hi, texture, (0, 0, 24, 14), angle=angle)]
+        result = [box(board_lo, board_hi, texture, angle=angle,
+                      faces=cube_faces((0, 0), (24, 12, 2)))]
         if not wall:
-            result.append(
-                box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 8 / 16, 8.5 / 16), texture, (0, 16, 8, 30), angle=angle),
-            )
+            result.append(box(
+                (7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 8 / 16, 8.5 / 16), texture,
+                angle=angle, faces=cube_faces((0, 14), (2, 14, 2)),
+            ))
     if content:
         result.extend(sign_text_boxes(content, board_lo, board_hi, angle, back=not wall))
     return result
@@ -245,13 +284,6 @@ def entity_decoration(name, props, content):
 # are six distinct 8x8 regions of the same texture, not one tile repeated on
 # every face -- south is the model's front by the same yaw=0-faces-south
 # convention the player model itself uses.
-HEAD_FACES = {
-    "south": (8, 8, 16, 16), "north": (24, 8, 32, 16),
-    "up": (8, 0, 16, 8), "down": (16, 0, 24, 8),
-    "west": (0, 8, 8, 16), "east": (16, 8, 24, 16),
-}
-
-
 def head(base, props):
     wall = "_wall_" in base
     kind = base.replace("_wall", "").removesuffix("_skull").removesuffix("_head")
@@ -264,7 +296,7 @@ def head(base, props):
         ((4 / 16, 4 / 16, 8 / 16), (12 / 16, 12 / 16, 1))
         if wall else ((4 / 16, 0, 4 / 16), (12 / 16, 8 / 16, 12 / 16))
     )
-    return [box(lo, hi, texture, faces=HEAD_FACES, angle=angle_for(props))]
+    return [box(lo, hi, texture, faces=cube_faces((0, 0), (8, 8, 8)), angle=angle_for(props))]
 
 
 def copper_golem(base, props):
@@ -283,6 +315,17 @@ def copper_golem(base, props):
 
 
 BANNER_LAYER_STEP = 0.15 / 16
+# The banner model is 20x40x1 of cloth on a 2x42x2 pole with a 20x2x2 bar,
+# drawn at two thirds scale, so a standing one stands about 1.75 blocks tall
+# and its cloth is wider than it is deep -- it does not fit in its own block
+# and was never meant to. The cloth size is confirmed by this file's own
+# long-standing crop of (1, 1, 21, 41), which is exactly that box's south
+# face unwrapped at texture offset (0, 0).
+BANNER_SCALE = 2 / 3
+
+
+def _banner_px(units):
+    return units * BANNER_SCALE / 16
 
 
 def _grown_cloth(cloth, amount):
@@ -302,25 +345,56 @@ def entity_shape(name, props, content=None):
         return head(base, props)
     color = colored(base, "bed")
     if color:
-        return [box((0, 0, 0), (1, 9 / 16, 1), f"entity/bed/{color}", angle=angle_for(props))]
+        texture = f"entity/bed/{color}"
+        angle = angle_for(props)
+        head_end = props.get("part") == "head"
+        return [
+            cube((0, 3, 0), (16, 6, 16), (0, 0) if head_end else (0, 22), texture, angle=angle),
+            cube((0, 0, 0), (3, 3, 3), (50, 0), texture, angle=angle),
+            cube((13, 0, 0), (3, 3, 3), (50, 6), texture, angle=angle),
+            cube((0, 0, 13), (3, 3, 3), (50, 12), texture, angle=angle),
+            cube((13, 0, 13), (3, 3, 3), (50, 18), texture, angle=angle),
+        ]
     color = colored(base, "wall_banner") or colored(base, "banner")
     if color:
         wall = "wall_banner" in base
         angle = angle_for(props)
+        half_width = _banner_px(20) / 2
+        cloth_height = _banner_px(40)
+        pole_height = _banner_px(42)
+        thickness = _banner_px(1)
+        centre = 0.5
+        top = pole_height - _banner_px(2) if not wall else 1.0
+        post = _banner_px(2) / 2
+        # The cloth hangs in front of the pole, not through it.
+        depth = (1 - thickness, 1.0) if wall else (centre + post, centre + post + thickness)
         cloth = (
-            ((2 / 16, 2 / 16, 15 / 16), (14 / 16, 14 / 16, 1))
-            if wall else ((2 / 16, 2 / 16, 7.5 / 16), (14 / 16, 14 / 16, 8.5 / 16))
+            (centre - half_width, top - cloth_height, depth[0]),
+            (centre + half_width, top, depth[1]),
         )
-        result = [box(*cloth, "entity/banner/banner_base", (1, 1, 21, 41), DYES[color], angle=angle)]
+        cloth_faces = cube_faces((0, 0), (20, 40, 1))
+        result = [box(*cloth, "entity/banner/banner_base", tint=DYES[color],
+                      angle=angle, faces=cloth_faces)]
         layers = content[1] if content and content[0] == "banner" else ()
         for i, (pattern, layer_color) in enumerate(layers, start=1):
             layer_cloth = _grown_cloth(cloth, i * BANNER_LAYER_STEP)
             result.append(box(
-                *layer_cloth, f"entity/banner/{pattern}", (1, 1, 21, 41),
-                DYES[layer_color], angle=angle,
+                *layer_cloth, f"entity/banner/{pattern}", tint=DYES[layer_color],
+                angle=angle, faces=cloth_faces,
             ))
         if not wall:
-            result.append(box((7.5 / 16, 0, 7.5 / 16), (8.5 / 16, 1, 8.5 / 16), "block/oak_planks", angle=angle))
+            result.append(box(
+                (centre - post, 0, centre - post), (centre + post, pole_height, centre + post),
+                "entity/banner/banner_base", angle=angle,
+                faces=cube_faces((44, 0), (2, 42, 2)),
+            ))
+            bar = _banner_px(2)
+            result.append(box(
+                (centre - half_width, pole_height - bar, centre - post),
+                (centre + half_width, pole_height, centre + post),
+                "entity/banner/banner_base", angle=angle,
+                faces=cube_faces((0, 42), (20, 2, 2)),
+            ))
         return result
     if base.endswith(("_sign", "_hanging_sign")):
         sides = content[1] if content and content[0] == "sign" else None
@@ -329,19 +403,31 @@ def entity_shape(name, props, content=None):
     if base == "shulker_box" or color:
         texture = f"entity/shulker/shulker{f'_{color}' if color else ''}"
         return [
-            box((0, 0, 0), (1, 0.5, 1), texture, (16, 44, 32, 52)),
-            box((0, 0.5, 0), (1, 1, 1), texture, (16, 16, 32, 28)),
+            cube((0, 0, 0), (16, 8, 16), (0, 28), texture),
+            cube((0, 8, 0), (16, 12, 16), (0, 0), texture),
         ]
     if name == "minecraft:bell":
         return [box((4 / 16, 3 / 16, 4 / 16), (12 / 16, 13 / 16, 12 / 16), "entity/bell/bell_body", (8, 6, 24, 22))]
     if name == "minecraft:conduit":
         return [box((5 / 16, 5 / 16, 5 / 16), (11 / 16, 11 / 16, 11 / 16), "entity/conduit/base", (0, 0, 16, 16))]
     if name == "minecraft:decorated_pot":
+        side = "entity/decorated_pot/decorated_pot_side"
+        base_texture = "entity/decorated_pot/decorated_pot_base"
+        # The side sherd is one square meant for one wall, not an unwrap, so
+        # it goes on the four walls as itself; only the neck is a real box.
+        wall_crop = (0, 0, 16, 16)
         return [
-            box((1 / 16, 0, 1 / 16), (15 / 16, 12 / 16, 15 / 16), "entity/decorated_pot/decorated_pot_side"),
             box(
-                (4 / 16, 12 / 16, 4 / 16), (12 / 16, 1, 12 / 16),
-                "entity/decorated_pot/decorated_pot_base", (0, 0, 16, 16),
+                (1 / 16, 0, 1 / 16), (15 / 16, 12 / 16, 15 / 16), side,
+                faces={d: wall_crop for d in ("north", "south", "east", "west")},
+            ),
+            box(
+                (1 / 16, 11.9 / 16, 1 / 16), (15 / 16, 12 / 16, 15 / 16), base_texture,
+                faces=cube_faces((0, 0), (14, 1, 14)),
+            ),
+            box(
+                (4 / 16, 12 / 16, 4 / 16), (12 / 16, 1, 12 / 16), base_texture,
+                faces=cube_faces((0, 16), (8, 4, 8)),
             ),
         ]
     if name in ("minecraft:end_portal", "minecraft:end_gateway"):

@@ -507,7 +507,12 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 else:
                     neighbors = occluder | own
                 mask = exposed_mask(own, neighbors, direction) if edge and part["angle"] % 90 == 0 else own
-                rect_index = part["rect_by_face"][direction] if "rect_by_face" in part else part["rect_index"]
+                if "rect_by_face" in part:
+                    if direction not in part["rect_by_face"]:
+                        continue
+                    rect_index = part["rect_by_face"][direction]
+                else:
+                    rect_index = part["rect_index"]
                 append(np.argwhere(mask).astype(np.float32), corners[indices], uv_for_rect(rects[rect_index]))
 
     for index, face_ids in resolved.items():

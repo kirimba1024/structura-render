@@ -138,6 +138,21 @@ def cube_faces(offset, size):
     }
 
 
+def lidded_cube_faces(offset, size):
+    """cube_faces with up and down swapped, for a box whose unwrap is lidded.
+
+    Read off the chest texture rather than argued: at offset (0, 0) for its
+    14x5x14 lid the first square is a dark inset and the second is plain
+    planks, and a closed chest shows planks from above and the dark inside
+    only when open. The skin-shaped boxes this file also draws -- a head at
+    (0, 0) on a player skin -- put the top first, so the two conventions are
+    kept apart instead of one being forced onto both.
+    """
+    faces = cube_faces(offset, size)
+    faces["up"], faces["down"] = faces["down"], faces["up"]
+    return faces
+
+
 def cube(origin, size, offset, texture, **kwargs):
     """A box placed and unwrapped in the model's own 1/16 units."""
     lo = tuple(value / 16 for value in origin)
@@ -166,10 +181,14 @@ def chest(base, props):
     angle = angle_for(props)
     left = 0 if chest_type == "left" else 1
     width = 16 if chest_type in ("left", "right") else 14
+    def part(origin, size, offset):
+        lo = tuple(v / 16 for v in origin)
+        hi = tuple((o + s) / 16 for o, s in zip(origin, size))
+        return box(lo, hi, texture, angle=angle, faces=lidded_cube_faces(offset, size))
     return [
-        cube((left, 0, 1), (width, 10, 14), (0, 19), texture, angle=angle),
-        cube((left, 10, 1), (width, 5, 14), (0, 0), texture, angle=angle),
-        cube((7, 7, 0), (2, 4, 1), (0, 0), texture, angle=angle),
+        part((left, 0, 1), (width, 10, 14), (0, 19)),
+        part((left, 10, 1), (width, 5, 14), (0, 0)),
+        part((7, 7, 0), (2, 4, 1), (0, 0)),
     ]
 
 
@@ -345,16 +364,10 @@ def entity_shape(name, props, content=None):
         return head(base, props)
     color = colored(base, "bed")
     if color:
-        texture = f"entity/bed/{color}"
-        angle = angle_for(props)
-        head_end = props.get("part") == "head"
-        return [
-            cube((0, 3, 0), (16, 6, 16), (0, 0) if head_end else (0, 22), texture, angle=angle),
-            cube((0, 0, 0), (3, 3, 3), (50, 0), texture, angle=angle),
-            cube((13, 0, 0), (3, 3, 3), (50, 6), texture, angle=angle),
-            cube((0, 0, 13), (3, 3, 3), (50, 12), texture, angle=angle),
-            cube((13, 0, 13), (3, 3, 3), (50, 18), texture, angle=angle),
-        ]
+        # A bed's own box is 16x16x6 laid on its back, so its unwrap does not
+        # line up with anything this file can derive without the rotation, and
+        # a guess at it rendered as debris. Left as the plain slab it was.
+        return [box((0, 0, 0), (1, 9 / 16, 1), f"entity/bed/{color}", angle=angle_for(props))]
     color = colored(base, "wall_banner") or colored(base, "banner")
     if color:
         wall = "wall_banner" in base
@@ -378,9 +391,13 @@ def entity_shape(name, props, content=None):
         layers = content[1] if content and content[0] == "banner" else ()
         for i, (pattern, layer_color) in enumerate(layers, start=1):
             layer_cloth = _grown_cloth(cloth, i * BANNER_LAYER_STEP)
+            # A pattern belongs on the cloth's two broad faces. Giving it the
+            # thin sides as well stacks every layer's edge in the same sliver
+            # of space, which z-fights along the whole outline.
             result.append(box(
                 *layer_cloth, f"entity/banner/{pattern}", tint=DYES[layer_color],
-                angle=angle, faces=cloth_faces,
+                angle=angle,
+                faces={face: cloth_faces[face] for face in ("north", "south")},
             ))
         if not wall:
             result.append(box(
@@ -411,24 +428,13 @@ def entity_shape(name, props, content=None):
     if name == "minecraft:conduit":
         return [box((5 / 16, 5 / 16, 5 / 16), (11 / 16, 11 / 16, 11 / 16), "entity/conduit/base", (0, 0, 16, 16))]
     if name == "minecraft:decorated_pot":
-        side = "entity/decorated_pot/decorated_pot_side"
-        base_texture = "entity/decorated_pot/decorated_pot_base"
-        # The side sherd is one square meant for one wall, not an unwrap, so
-        # it goes on the four walls as itself; only the neck is a real box.
-        wall_crop = (0, 0, 16, 16)
+        # Same as the bed: the pot's own neck/body split and its sherd faces
+        # are not derivable from the pack, and guessing produced holes.
         return [
-            box(
-                (1 / 16, 0, 1 / 16), (15 / 16, 12 / 16, 15 / 16), side,
-                faces={d: wall_crop for d in ("north", "south", "east", "west")},
-            ),
-            box(
-                (1 / 16, 11.9 / 16, 1 / 16), (15 / 16, 12 / 16, 15 / 16), base_texture,
-                faces=cube_faces((0, 0), (14, 1, 14)),
-            ),
-            box(
-                (4 / 16, 12 / 16, 4 / 16), (12 / 16, 1, 12 / 16), base_texture,
-                faces=cube_faces((0, 16), (8, 4, 8)),
-            ),
+            box((1 / 16, 0, 1 / 16), (15 / 16, 12 / 16, 15 / 16),
+                "entity/decorated_pot/decorated_pot_side"),
+            box((4 / 16, 12 / 16, 4 / 16), (12 / 16, 1, 12 / 16),
+                "entity/decorated_pot/decorated_pot_base", (0, 0, 16, 16)),
         ]
     if name in ("minecraft:end_portal", "minecraft:end_gateway"):
         portal = name.endswith("end_portal")

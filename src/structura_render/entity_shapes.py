@@ -318,6 +318,44 @@ def head(base, props):
     return [box(lo, hi, texture, faces=cube_faces((0, 0), (8, 8, 8)), angle=angle_for(props))]
 
 
+def bed(color, props):
+    """A bed half: one 16x16x6 box laid on its back, plus two legs.
+
+    Laid on its back is the whole difficulty, and it is why a single crop
+    could never work here. Read straight off entity/bed/red.png, the head
+    half at offset (0, 0) unwraps exactly as a 16x16x6 box: the mattress and
+    pillow are its south face at (6,6)-(22,22), the planks of its underside
+    its north at (28,6)-(44,22), the two long sides its west and east, and
+    the two end boards its up and down. Rotating the box a quarter turn to
+    lay it down sends its south face to the sky and its up face to whichever
+    end the half points at. The foot half is the same at offset (0, 22).
+    """
+    texture = f"entity/bed/{color}"
+    angle = angle_for(props)
+    head_end = props.get("part") == "head"
+    u, v = (0, 0) if head_end else (0, 22)
+    width, height, depth = 16, 16, 6
+    outer = (u + depth, v, u + depth + width, v + depth)
+    inner = (u + depth + width, v, u + depth + 2 * width, v + depth)
+    faces = {
+        "up": (u + depth, v + depth, u + depth + width, v + depth + height),
+        "down": (u + 2 * depth + width, v + depth,
+                 u + 2 * depth + 2 * width, v + depth + height),
+        "west": (u, v + depth, u + depth, v + depth + height),
+        "east": (u + depth + width, v + depth,
+                 u + 2 * depth + width, v + depth + height),
+        "north": outer if head_end else inner,
+        "south": inner if head_end else outer,
+    }
+    result = [box((0, 3 / 16, 0), (1, 9 / 16, 1), texture, angle=angle, faces=faces)]
+    for index, (x, z) in enumerate(((0, 0), (13, 0), (0, 13), (13, 13))):
+        result.append(box(
+            (x / 16, 0, z / 16), ((x + 3) / 16, 3 / 16, (z + 3) / 16), texture,
+            angle=angle, faces=cube_faces((50, index * 6), (3, 3, 3)),
+        ))
+    return result
+
+
 def copper_golem(base, props):
     stage = next((stage for stage in ("exposed", "weathered", "oxidized") if stage in base), None)
     texture = "entity/copper_golem/copper_golem" + (f"_{stage}" if stage else "")
@@ -364,10 +402,7 @@ def entity_shape(name, props, content=None):
         return head(base, props)
     color = colored(base, "bed")
     if color:
-        # A bed's own box is 16x16x6 laid on its back, so its unwrap does not
-        # line up with anything this file can derive without the rotation, and
-        # a guess at it rendered as debris. Left as the plain slab it was.
-        return [box((0, 0, 0), (1, 9 / 16, 1), f"entity/bed/{color}", angle=angle_for(props))]
+        return bed(color, props)
     color = colored(base, "wall_banner") or colored(base, "banner")
     if color:
         wall = "wall_banner" in base

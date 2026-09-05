@@ -5,14 +5,14 @@ import pyvista as pv
 import trimesh
 from PIL import Image
 
-from structura_core import AIR_NAMES, Structure
+from structura_core import AIR_NAMES
 
 from .block_model import AXIS_VEC, block_elements, post_texture
 from .entities import structure_parts
 from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
 from .projections import block_color, family
-from .textures import TextureBank, tint_for
+from .textures import tint_for
 
 GLASS_ALPHA = 90
 
@@ -324,13 +324,13 @@ def resolve_special_parts(shape, bank, atlas):
     for part in shape:
         if part["faces"]:
             rect_by_face = {}
-            spin = part.get("face_rotation") or {}
+            turns = part.get("turns") or {}
             for direction, crop in part["faces"].items():
                 image = bank.read_asset(part["texture"], part["tint"], crop, part["alpha"])
                 if image is None:
                     continue
-                if spin.get(direction):
-                    image = image.rotate(spin[direction], expand=True)
+                if direction in turns:
+                    image = image.transpose(turns[direction])
                 rect_by_face[direction] = atlas.add(image)
             if rect_by_face:
                 parts.append({**part, "rect_by_face": rect_by_face})

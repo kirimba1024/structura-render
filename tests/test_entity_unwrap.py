@@ -13,11 +13,13 @@ matrix per shape, taken from the game's source, against our tables.
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from structura_render.entity_shapes import (
     HALF_TURN_X, HALF_TURN_Y, HALF_TURN_Z, NO_TURN, QUARTER_TURN_X, TURNS,
-    WORLD_UV, leg_pose, unwrap,
+    WORLD_UV, after, leg_pose, unwrap,
 )
+from structura_render.entity_shapes import SHULKER_SPIN as SHULKER_SPIN_POSE
 
 AXES = {"east": (1, 0, 0), "west": (-1, 0, 0), "up": (0, 1, 0),
         "down": (0, -1, 0), "south": (0, 0, 1), "north": (0, 0, -1)}
@@ -126,7 +128,24 @@ WALL_SIGN_BASE = (translate(0.5, 0.5, 0.5) @ rotate("y", -YAW[FACING])
                   @ translate(0, -0.3125, -0.4375) @ scale(2 / 3, -2 / 3, -2 / 3))
 HANGING_SIGN_BASE = (translate(0.5, 0.9375, 0.5) @ translate(0, -0.3125, 0)
                      @ scale(1, -1, -1))
-SHULKER_BASE = translate(0.5, 0.5, 0.5) @ scale(1, -1, -1) @ translate(0, -1, 0)
+# Direction.getRotation(), composed the way JOML's rotationXYZ does: X, then
+# Y, then Z, with Z reaching the point first.
+SHULKER_SPIN = {
+    "up": np.eye(4),
+    "down": rotate("x", 180),
+    "north": rotate("x", 90) @ rotate("z", 180),
+    "south": rotate("x", 90),
+    "west": rotate("x", 90) @ rotate("z", 90),
+    "east": rotate("x", 90) @ rotate("z", -90),
+}
+
+
+def shulker_base(facing):
+    return (translate(0.5, 0.5, 0.5) @ SHULKER_SPIN[facing]
+            @ scale(1, -1, -1) @ translate(0, -1, 0))
+
+
+SHULKER_BASE = shulker_base("up")
 POT_BASE = around(rotate("y", 180 - YAW[FACING]), 0.5, 0.5, 0.5)
 
 # label, model transform, texture offset, box origin, box size, our pose, grow
@@ -173,6 +192,12 @@ BOXES = [
      (6, 1, 6), HALF_TURN_X, 0.2),
     ("pot disc", POT_BASE @ part_pose(1, 16, 1), (-14, 13), (0, 0, 0), (14, 0, 14),
      NO_TURN, 0),
+    *[(f"shulker {name} {facing}", shulker_base(facing) @ part_pose(0, 24, 0),
+       offset, origin, size, after(HALF_TURN_X, SHULKER_SPIN_POSE[facing]), 0)
+      for facing in SHULKER_SPIN
+      for name, offset, origin, size in (
+          ("lid", (0, 0), (-8, -16, -8), (16, 12, 16)),
+          ("base", (0, 28), (-8, -8, -8), (16, 8, 16)))],
     ("bell body", part_pose(8, 12, 8), (0, 0), (-3, -6, -3), (6, 7, 6), NO_TURN, 0),
     ("bell lip", part_pose(8, 12, 8) @ part_pose(-8, -12, -8), (0, 13), (4, 4, 4),
      (8, 2, 8), NO_TURN, 0),
@@ -243,15 +268,17 @@ PLACEMENTS = [
     ("minecraft:bell", {"facing": FACING, "attachment": "floor"}, [
         (part_pose(8, 12, 8), (-3, -6, -3), (6, 7, 6), 0),
         (part_pose(8, 12, 8) @ part_pose(-8, -12, -8), (4, 4, 4), (8, 2, 8), 0)]),
-    ("minecraft:red_shulker_box", {"facing": "up"}, [
-        (SHULKER_BASE @ part_pose(0, 24, 0), (-8, -8, -8), (16, 8, 16), 0),
-        (SHULKER_BASE @ part_pose(0, 24, 0), (-8, -16, -8), (16, 12, 16), 0)]),
+    *[("minecraft:red_shulker_box", {"facing": facing}, [
+        (shulker_base(facing) @ part_pose(0, 24, 0), (-8, -8, -8), (16, 8, 16), 0),
+        (shulker_base(facing) @ part_pose(0, 24, 0), (-8, -16, -8), (16, 12, 16), 0)])
+      for facing in SHULKER_SPIN],
 ]
 
 
 @pytest.mark.parametrize(
     "name,props,parts", PLACEMENTS,
-    ids=[f"{name.split(':')[1]} {sorted(props.values())}" for name, props, _ in PLACEMENTS],
+    ids=[f"{name.split(':')[1]} {'/'.join(sorted(props.values()))}"
+         for name, props, _ in PLACEMENTS],
 )
 def test_boxes_sit_where_the_game_puts_them(name, props, parts):
     from structura_render.entity_shapes import entity_shape
@@ -260,3 +287,34 @@ def test_boxes_sit_where_the_game_puts_them(name, props, parts):
              for part in entity_shape(name, props)]
     expected = [game_box(matrix, origin, size, grow) for matrix, origin, size, grow in parts]
     assert sorted(drawn) == sorted(expected)
+
+
+def test_turns_match_pillow():
+    """The turn table has to say what Pillow actually does.
+
+    Every entry but the two 90-degree rotations is its own inverse, so a
+    table written back to front still passes every other check in this file
+    -- both sides of the comparison would be wrong the same way. This is the
+    one place the table meets the library it describes.
+    """
+    from structura_render.entity_shapes import OPPOSITE, TURNS
+
+    width, height = 4, 2
+    pixels = np.array([[10 * x + y for x in range(width)] for y in range(height)],
+                      dtype=np.uint8)
+    source = Image.fromarray(pixels)
+    step = {(1, 0): "east", (-1, 0): "west", (0, 1): "down", (0, -1): "up"}
+    for turn, moves in TURNS.items():
+        if turn is None:
+            continue
+        out = np.asarray(source.transpose(turn))
+        where = {int(v): (row, col) for row, line in enumerate(out)
+                 for col, v in enumerate(line)}
+        origin, along_x, along_y = where[0], where[10], where[1]
+        right = step[(along_x[1] - origin[1], along_x[0] - origin[0])]
+        down = step[(along_y[1] - origin[1], along_y[0] - origin[0])]
+        # Read the turned image the ordinary way, and see which way a crop
+        # drawn right=east, down=down now runs.
+        frame = {right: "east", OPPOSITE[right]: "west",
+                 down: "down", OPPOSITE[down]: "up"}
+        assert moves("east", "down") == (frame["east"], frame["down"]), turn

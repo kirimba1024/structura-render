@@ -126,13 +126,18 @@ WORLD_UV = {
     "east": ("north", "down"), "west": ("south", "down"),
 }
 
+# What each of Pillow's transposes does to a crop's own right and down --
+# where they point once the turned image is read the ordinary way. Pillow
+# rotates anticlockwise, so ROTATE_90 sends the crop's right up the page and
+# its down to the right, and these are the two that are easy to write down
+# backwards: test_turns_match_pillow keeps them honest.
 TURNS = {
     None: lambda right, down: (right, down),
     Image.FLIP_LEFT_RIGHT: lambda right, down: (OPPOSITE[right], down),
     Image.FLIP_TOP_BOTTOM: lambda right, down: (right, OPPOSITE[down]),
     Image.ROTATE_180: lambda right, down: (OPPOSITE[right], OPPOSITE[down]),
-    Image.ROTATE_90: lambda right, down: (OPPOSITE[down], right),
-    Image.ROTATE_270: lambda right, down: (down, OPPOSITE[right]),
+    Image.ROTATE_90: lambda right, down: (down, OPPOSITE[right]),
+    Image.ROTATE_270: lambda right, down: (OPPOSITE[down], right),
     Image.TRANSPOSE: lambda right, down: (down, right),
     Image.TRANSVERSE: lambda right, down: (OPPOSITE[down], OPPOSITE[right]),
 }
@@ -152,6 +157,35 @@ HALF_TURN_Z = {"up": "down", "down": "up", "north": "north", "south": "south",
 QUARTER_TURN_X = {"up": "south", "down": "north", "north": "up",
                   "south": "down", "east": "east", "west": "west"}
 NO_TURN = {name: name for name in OPPOSITE}
+# A quarter turn about the model's own Z, the axis the game spins a bed leg
+# and a shulker box about before setting either in its block.
+SPIN_Z = {"east": "up", "up": "west", "west": "down", "down": "east",
+          "north": "north", "south": "south"}
+MODEL_AXES = ("east", "up", "south")
+SIGNED_AXIS = {"east": (0, 1), "west": (0, -1), "up": (1, 1),
+               "down": (1, -1), "south": (2, 1), "north": (2, -1)}
+
+
+def after(first, second):
+    """The pose of a model turned by `first` and then by `second`."""
+    return {face: second[direction] for face, direction in first.items()}
+
+
+def spin_z(quarters):
+    pose = NO_TURN
+    for _ in range(quarters):
+        pose = after(pose, SPIN_Z)
+    return pose
+
+
+def turned_box(pose, lo, hi):
+    """Where a box given about its block's centre ends up once turned."""
+    low, high = [0.0] * 3, [0.0] * 3
+    for index, model_axis in enumerate(MODEL_AXES):
+        axis, sign = SIGNED_AXIS[pose[model_axis]]
+        low[axis], high[axis] = ((lo[index], hi[index]) if sign > 0
+                                 else (-hi[index], -lo[index]))
+    return tuple(v + 0.5 for v in low), tuple(v + 0.5 for v in high)
 
 
 # Banners and standing signs are drawn at two thirds scale, so one of their
@@ -392,11 +426,9 @@ def head(base, props):
 
 
 # Each bed leg is the same box spun about the bed's own upright before the
-# bed is laid down -- a quarter turn about the model's Z, which the laying
-# down then carries round with everything else. The game gives each of the
-# four a different quarter so that one box definition serves all of them.
-SPIN_Z = {"east": "up", "up": "west", "west": "down", "down": "east",
-          "north": "north", "south": "south"}
+# bed is laid down, and the laying down then carries the spin round with
+# everything else. The game gives each of the four a different quarter so
+# that one box definition serves all of them.
 BED_LEGS = {
     "head": ((0, 0, (50, 6), 1), (13, 0, (50, 18), 2)),
     "foot": ((0, 13, (50, 0), 0), (13, 13, (50, 12), 3)),
@@ -404,10 +436,7 @@ BED_LEGS = {
 
 
 def leg_pose(quarters):
-    spun = QUARTER_TURN_X
-    for _ in range(quarters):
-        spun = {face: SPIN_Z[direction] for face, direction in spun.items()}
-    return {face: QUARTER_TURN_X[direction] for face, direction in spun.items()}
+    return after(QUARTER_TURN_X, after(spin_z(quarters), QUARTER_TURN_X))
 
 
 def bed(color, props):
@@ -506,6 +535,40 @@ def banner(color, wall, angle, layers):
     return result
 
 
+# Direction.getRotation(): the turn the game gives a shulker box before it
+# sticks it to the face it was placed on, on top of the half turn that
+# rights the model in the first place.
+SHULKER_SPIN = {
+    "up": NO_TURN,
+    "down": HALF_TURN_X,
+    "south": QUARTER_TURN_X,
+    "north": after(spin_z(2), QUARTER_TURN_X),
+    "west": after(spin_z(1), QUARTER_TURN_X),
+    "east": after(spin_z(3), QUARTER_TURN_X),
+}
+# Lid and base about the block's centre, once the model is the right way up:
+# a 16x12x16 lid closed over a 16x8x16 base, the pair a pixel shy of filling
+# the block so a boxful never quite touches its neighbour.
+SHULKER_PARTS = (
+    (((-0.5, -0.25, -0.5), (0.5, 0.5, 0.5)), (0, 0), (16, 12, 16)),
+    (((-0.5, -0.5, -0.5), (0.5, 0.0, 0.5)), (0, 28), (16, 8, 16)),
+)
+
+
+def shulker_box(color, facing):
+    """A lid over a base, stuck to whichever face of the block it was placed
+    on -- which is a turn in three axes, not the yaw the rest of this file
+    gets away with, so the boxes are turned here rather than by an angle.
+    """
+    texture = f"entity/shulker/shulker{f'_{color}' if color else ''}"
+    spin = SHULKER_SPIN.get(facing, NO_TURN)
+    pose = after(HALF_TURN_X, spin)
+    return [
+        box(*turned_box(spin, lo, hi), texture, **unwrap(offset, size, pose))
+        for (lo, hi), offset, size in SHULKER_PARTS
+    ]
+
+
 def decorated_pot(angle):
     """A hollow pot: four sherd walls, a disc top and bottom, and a neck.
 
@@ -559,14 +622,7 @@ def entity_shape(name, props, content=None):
         return sign(base, props, dict(sides) if sides else None)
     color = colored(base, "shulker_box")
     if base == "shulker_box" or color:
-        # Drawn as if it faced up. A shulker box can be stuck to any of the
-        # six sides, and the other five are a tilt this file's yaw-only
-        # angle cannot express.
-        texture = f"entity/shulker/shulker{f'_{color}' if color else ''}"
-        return [
-            cube((0, 0, 0), (16, 8, 16), (0, 28), texture, HALF_TURN_X),
-            cube((0, 4, 0), (16, 12, 16), (0, 0), texture, HALF_TURN_X),
-        ]
+        return shulker_box(color, props.get("facing", "up"))
     if name == "minecraft:bell":
         # The hanger comes from the block model; this is the bell itself,
         # a 6x7x6 body with its wider lip under it. The one block entity

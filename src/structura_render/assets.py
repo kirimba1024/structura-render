@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 _VERSION_MARKER_BLOCK = "heavy_core"
+_LAYOUT = 2  # bump when the extracted member set changes, or caches go stale
 
 
 def _cache_root() -> Path:
@@ -18,7 +19,7 @@ def _cache_root() -> Path:
 def _extract_jar_assets(jar_path: Path) -> Path:
     stat = jar_path.stat()
     key = hashlib.sha1(
-        f"{jar_path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}".encode(),
+        f"{jar_path.resolve()}:{stat.st_mtime_ns}:{stat.st_size}:{_LAYOUT}".encode(),
     ).hexdigest()[:16]
     dest = _cache_root() / key
     marker = dest / ".extracted"
@@ -29,7 +30,10 @@ def _extract_jar_assets(jar_path: Path) -> Path:
     with zipfile.ZipFile(jar_path) as archive:
         members = [
             name for name in archive.namelist()
-            if name.startswith("assets/minecraft/") and not name.endswith("/")
+            if not name.endswith("/") and (
+                name.startswith("assets/minecraft/")
+                or name.startswith("data/minecraft/painting_variant/")
+            )
         ]
         if not members:
             raise FileNotFoundError(
@@ -80,3 +84,20 @@ def minecraft_assets_root() -> Path:
 
 
 ASSETS = minecraft_assets_root()
+
+
+def _pack_data_root(assets_root):
+    """data/minecraft beside assets/minecraft, when the pack has one.
+
+    Paintings are the reason this exists: their sizes are a registry, shipped
+    under data/, while their textures are under assets/. A directory a user
+    points at may hold only assets, so this is allowed to be missing.
+    """
+    for parent in (assets_root.parents[1] if len(assets_root.parents) > 1 else assets_root,):
+        candidate = parent / "data" / "minecraft"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+DATA = _pack_data_root(ASSETS)

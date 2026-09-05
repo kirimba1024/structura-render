@@ -8,6 +8,7 @@ from PIL import Image
 from structura_core import AIR_NAMES, Structure
 
 from .block_model import AXIS_VEC, block_elements, post_texture
+from .entities import structure_parts
 from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
 from .projections import block_color, family
@@ -440,6 +441,13 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     wall_connectable = occluder | wall_family | fence_gate_family
     bars_connectable = occluder | bars_family
 
+    entity_geometry = []
+    for anchor, parts in structure_parts(src):
+        for part in parts:
+            image = bank.read_asset(part["texture"], part["tint"], part["crop"], part["alpha"])
+            if image is not None:
+                entity_geometry.append((anchor, part, atlas.add(image)))
+
     texture = None
     rects = []
     if atlas.images:
@@ -596,6 +604,12 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 key = face_texture_key(direction, face_ids)
                 rect = rects[face_ids.get(key, face_ids.get("all"))]
                 append(pos, CUBE_CORNERS[CUBE_FACES[direction]], uv_for_rect(rect))
+
+    for anchor, part, rect_index in entity_geometry:
+        origin = np.array([anchor], dtype=np.float32)
+        corners = box_corners(part["lo"], part["hi"])
+        for direction in CUBE_FACES:
+            append(origin, corners[CUBE_FACES[direction]], uv_for_rect(rects[rect_index]))
 
     flat_entities = []
     special_indices = {key[0] if isinstance(key, tuple) else key for key in specials}

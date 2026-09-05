@@ -187,9 +187,20 @@ def sign_text_boxes(content, board_lo, board_hi, angle, back):
 
 
 def sign_board_bounds(base):
+    """The board's own box, sized from the texture's unwrap.
+
+    A sign has no block model -- the game draws it as an entity whose
+    geometry lives in code -- so the only description of it shipped with the
+    pack is the atlas. A box unwraps to (2*depth + 2*width) by (depth +
+    height), which reads back as 24x12x2 for a standing board from its
+    (0,0,24,14) region and 14x10x2 for a hanging one from (0,12,32,24).
+    Guessing 12x9 for the hanging board instead is what pushed its text up:
+    the lines centre on the board, so a board short by a pixel carries them
+    with it.
+    """
     wall = "_wall_" in base
     if "hanging_sign" in base:
-        return (2 / 16, 3 / 16, 7 / 16), (14 / 16, 12 / 16, 9 / 16), wall
+        return (1 / 16, 2 / 16, 7 / 16), (15 / 16, 12 / 16, 9 / 16), wall
     if wall:
         return (0, 5 / 16, 14 / 16), (1, 12 / 16, 1), wall
     return (2 / 16, 8 / 16, 7 / 16), (14 / 16, 14 / 16, 9 / 16), wall

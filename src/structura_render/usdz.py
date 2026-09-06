@@ -116,6 +116,8 @@ def build_material(stage, root, texture_path, name="AtlasMaterial"):
     )
     texture.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("clamp")
     texture.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("clamp")
+    texture.CreateInput("minFilter", Sdf.ValueTypeNames.Token).Set("nearest")
+    texture.CreateInput("magFilter", Sdf.ValueTypeNames.Token).Set("nearest")
     texture.CreateInput("sourceColorSpace", Sdf.ValueTypeNames.Token).Set("sRGB")
     texture.CreateOutput("rgb", Sdf.ValueTypeNames.Float3)
     texture.CreateOutput("a", Sdf.ValueTypeNames.Float)
@@ -136,45 +138,40 @@ def face_normal(points, quad):
     return normal / length if length > 0 else np.array([0.0, 1.0, 0.0])
 
 
-COINCIDENT_SEPARATION = 1 / 256
+def unique_sided_quads(points, quads):
+    groups = {}
+    rounded = np.round(points, 4)
+    for quad in quads:
+        key = frozenset(tuple(rounded[i]) for i in quad)
+        groups.setdefault(key, []).append(quad)
+
+    result = []
+    for group in groups.values():
+        reference = face_normal(points, group[0])
+        sided = {}
+        for quad in group:
+            side = 1 if np.dot(face_normal(points, quad), reference) >= 0 else -1
+            sided.setdefault(side, quad)
+        result.extend(sided.values())
+        if len(sided) == 1:
+            result.append(group[0][::-1])
+    return result
 
 
 def add_mesh(stage, root, name, points, faces, uv, material, center):
     mesh = UsdGeom.Mesh.Define(stage, root.AppendPath(name))
-    points = np.asarray(points, dtype=np.float64).copy()
+    points = np.asarray(points, dtype=np.float64)
     quads = [tuple(int(v) for v in faces[i + 1:i + 5]) for i in range(0, len(faces), 5)]
-    rounded = np.round(points, 4)
-    quad_keys = [frozenset(tuple(rounded[i]) for i in quad) for quad in quads]
-    coverage = {}
-    for key in quad_keys:
-        coverage[key] = coverage.get(key, 0) + 1
-
-    first_normal = {}
-    for i, (quad, key) in enumerate(zip(quads, quad_keys)):
-        if coverage[key] < 2:
-            continue
-        normal = face_normal(points, quad)
-        if key not in first_normal:
-            first_normal[key] = normal
-        elif np.dot(normal, first_normal[key]) > 0:
-            quads[i] = quad[::-1]
-
-    for quad, key in zip(quads, quad_keys):
-        if coverage[key] >= 2:
-            points[list(quad)] += face_normal(points, quad) * COINCIDENT_SEPARATION
+    quads = unique_sided_quads(points, quads)
 
     counts = []
     indices = []
     normals = []
-    for quad, key in zip(quads, quad_keys):
+    for quad in quads:
         counts.append(4)
         indices.extend(quad)
         normal = face_normal(points, quad)
         normals.append(Gf.Vec3f(*normal))
-        if coverage[key] < 2:
-            counts.append(4)
-            indices.extend(quad[::-1])
-            normals.append(Gf.Vec3f(*(-normal)))
     mesh.CreatePointsAttr([
         Gf.Vec3f(float(p[0] - center[0]), float(p[1] - center[1]), float(p[2] - center[2]))
         for p in points
@@ -184,7 +181,7 @@ def add_mesh(stage, root, name, points, faces, uv, material, center):
     mesh.CreateNormalsAttr(normals)
     mesh.SetNormalsInterpolation(UsdGeom.Tokens.uniform)
     mesh.CreateSubdivisionSchemeAttr("none")
-    mesh.CreateDoubleSidedAttr(True)
+    mesh.CreateDoubleSidedAttr(False)
     primvars = UsdGeom.PrimvarsAPI(mesh)
     st = primvars.CreatePrimvar(
         "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex,

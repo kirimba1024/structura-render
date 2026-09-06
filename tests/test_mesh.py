@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 
 from structura_render.mesh import Atlas, MAX_ATLAS_SIZE, upscale_atlas, uv_points_for_rect
+from structura_render.textures import TextureBank, WATER_ALPHA
 
 
 def test_atlas_deduplicates_equal_pixels_from_distinct_images():
@@ -28,3 +29,13 @@ def test_model_uv_points_keep_vertex_order_inside_atlas_tile():
     np.testing.assert_allclose(result, [
         [.25, .3], [.5, .3], [.5, .1], [.25, .1],
     ])
+
+
+def test_water_stays_visible_against_a_light_preview_background(monkeypatch):
+    bank = TextureBank()
+    water = Image.new("RGBA", (16, 16), (220, 240, 255, 180))
+    monkeypatch.setattr(bank, "_read", lambda _stem: water)
+
+    image = bank.resolve("minecraft:water")["all"]
+
+    assert np.asarray(image)[..., 3].min() == WATER_ALPHA

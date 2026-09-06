@@ -12,6 +12,7 @@ TEXTURES = ASSETS / "textures"
 GRASS_TINT = (145, 189, 89)
 FOLIAGE_TINT = (95, 158, 62)
 WATER_TINT = (63, 118, 228)
+WATER_ALPHA = 220
 SPRUCE_LEAVES_TINT = (97, 153, 97)
 BIRCH_LEAVES_TINT = (128, 167, 85)
 
@@ -25,7 +26,15 @@ STRIP_SUFFIXES = (
 def _tint(image, color):
     array = np.asarray(image).astype(np.float32)
     factor = np.array([*color, 255], dtype=np.float32) / 255.0
-    return Image.fromarray(np.clip(array * factor, 0, 255).astype(np.uint8), "RGBA")
+    return Image.fromarray(np.clip(array * factor, 0, 255).astype(np.uint8))
+
+
+def _readable_water(image):
+    image = _tint(image, WATER_TINT)
+    array = np.asarray(image).copy()
+    alpha = array[..., 3]
+    array[..., 3] = np.where(alpha, np.maximum(alpha, WATER_ALPHA), 0)
+    return Image.fromarray(array)
 
 
 def tint_for(name, props=None):
@@ -170,7 +179,7 @@ class TextureBank:
             return {"all": _tint(image, FOLIAGE_TINT)} if image else None
         if base == "water":
             image = self._read("water_still")
-            return {"all": _tint(image, WATER_TINT)} if image else None
+            return {"all": _readable_water(image)} if image else None
         if base == "lava":
             image = self._read("lava_still")
             return {"all": image} if image else None

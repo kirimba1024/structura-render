@@ -19,8 +19,6 @@ def main():
 
     src = Structure(as_structure_nbt(args.src))
     state, solid, index_names, index_props = voxel_state(src)
-    if not solid.any():
-        raise SystemExit("structure contains no solid blocks")
 
     bank = TextureBank()
     meshes, _, textured_indices, occluder = build_textured_meshes(

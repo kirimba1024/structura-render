@@ -1,6 +1,7 @@
 """Compact models for blocks rendered outside block-model JSON."""
 
 import json
+import math
 
 from PIL import Image
 
@@ -77,7 +78,8 @@ def _sign_side(component):
 
 def nbt_sensitive(name):
     base = name.split(":", 1)[-1]
-    return base.endswith(("_sign", "_hanging_sign")) or "banner" in base
+    return (base.endswith(("_sign", "_hanging_sign")) or "banner" in base
+            or base == "decorated_pot")
 
 
 def nbt_signature(name, nbt):
@@ -102,6 +104,10 @@ def nbt_signature(name, nbt):
             if color in DYES:
                 layers.append((pattern, color))
         return ("banner", tuple(layers)) if layers else None
+    if base == "decorated_pot" and "sherds" in nbt:
+        sherds = tuple(str(item) for item in nbt["sherds"])
+        plain = all(item.split(":", 1)[-1] == "brick" for item in sherds)
+        return None if plain or len(sherds) != 4 else ("pot", sherds)
     return None
 
 
@@ -373,6 +379,31 @@ def sign_board_bounds(base):
     return lo, hi, wall, HALF_TURN_Z if wall else HALF_TURN_X
 
 
+def _hanging_plane(texture, offset, origin, size, pivot, local_angle, angle):
+    radians = math.radians(local_angle)
+    cosine, sine = math.cos(radians), math.sin(radians)
+    x, y, z = origin
+    width, height, depth = size
+    corners = []
+    for px, py, pz in (
+        (x, y, z), (x + width, y, z), (x + width, y, z + depth), (x, y, z + depth),
+        (x, y + height, z), (x + width, y + height, z),
+        (x + width, y + height, z + depth), (x, y + height, z + depth),
+    ):
+        turned_x = px * cosine + pz * sine + pivot[0]
+        turned_z = -px * sine + pz * cosine + pivot[2]
+        model_y = py + pivot[1]
+        corners.append((.5 + turned_x / 16, .625 - model_y / 16,
+                        .5 - turned_z / 16))
+    lo = tuple(min(point[i] for point in corners) for i in range(3))
+    hi = tuple(max(point[i] for point in corners) for i in range(3))
+    crops = cube_faces(offset, size)
+    part = box(lo, hi, texture, angle=angle,
+               faces={face: crops[face] for face in ("north", "south")})
+    part["corners"] = corners
+    return part
+
+
 def sign(base, props, content=None):
     hanging = "hanging_sign" in base
     wood = base.split("_wall", 1)[0].split("_hanging", 1)[0].removesuffix("_sign")
@@ -384,10 +415,22 @@ def sign(base, props, content=None):
     result = [box(board_lo, board_hi, texture, angle=angle,
                   **unwrap(board_offset, board_size, pose))]
     if hanging:
-        # Two chains from the board's top corners up to the block's ceiling.
-        for x in (3 / 16, 12 / 16):
-            result.append(box((x, 10 / 16, 7 / 16), (x + 1 / 16, 1, 9 / 16),
-                              "block/chain", angle=angle))
+        ceiling = "_wall_" not in base
+        if not ceiling:
+            result.append(box((0, 14 / 16, 6 / 16), (1, 1, 10 / 16), texture,
+                              angle=angle, **unwrap((0, 0), (16, 2, 4), HALF_TURN_X)))
+        if ceiling and props.get("attached") == "true":
+            result.append(_hanging_plane(
+                texture, (14, 6), (-6, -6, 0), (12, 6, 0), (0, 0, 0), 0, angle,
+            ))
+        else:
+            segments = (
+                ((0, 6), (-5, -6, 0), -45), ((6, 6), (-5, -6, 0), 45),
+                ((0, 6), (5, -6, 0), -45), ((6, 6), (5, -6, 0), 45),
+            )
+            result.extend(_hanging_plane(
+                texture, offset, (-1.5, 0, 0), (3, 6, 0), pivot, turn, angle,
+            ) for offset, pivot, turn in segments)
     elif not wall:
         stick = _px(1)
         result.append(box(
@@ -569,7 +612,16 @@ def shulker_box(color, facing):
     ]
 
 
-def decorated_pot(angle):
+PLAIN_SHERD = "entity/decorated_pot/decorated_pot_side"
+
+
+def sherd_texture(item):
+    name = str(item).split(":", 1)[-1]
+    return (f"entity/decorated_pot/{name.removesuffix('_pottery_sherd')}_pottery_pattern"
+            if name.endswith("_pottery_sherd") else PLAIN_SHERD)
+
+
+def decorated_pot(angle, sherds=None):
     """A hollow pot: four sherd walls, a disc top and bottom, and a neck.
 
     Nothing here is a solid box. Each wall is one plane a pixel inside the
@@ -577,17 +629,25 @@ def decorated_pot(angle):
     the block's floor and ceiling, and the neck is a tube on a collar that
     stands clear above the block -- the pot is the one block entity the game
     lets out of its own cube.
+
+    The four sherds are stored back, left, right, front, which at this
+    file's yaw of zero is north, west, east, south.
     """
     base = "entity/decorated_pot/decorated_pot_base"
-    sherd = "entity/decorated_pot/decorated_pot_side"
+    walls = [sherd_texture(item) for item in sherds] if sherds else [PLAIN_SHERD] * 4
     near, far = 1 / 16, 15 / 16
     disc = {"down": (0, 13, 14, 27), "up": (14, 13, 28, 27)}
     wall = (1, 0, 15, 16)
+    sides = (
+        ("north", (near, 0, near), (far, 1, near)),
+        ("west", (near, 0, near), (near, 1, far)),
+        ("east", (far, 0, near), (far, 1, far)),
+        ("south", (near, 0, far), (far, 1, far)),
+    )
     return [
-        box((near, 0, near), (far, 1, near), sherd, faces={"north": wall}, angle=angle),
-        box((near, 0, far), (far, 1, far), sherd, faces={"south": wall}, angle=angle),
-        box((near, 0, near), (near, 1, far), sherd, faces={"west": wall}, angle=angle),
-        box((far, 0, near), (far, 1, far), sherd, faces={"east": wall}, angle=angle),
+        box(lo, hi, texture, faces={face: wall}, angle=angle)
+        for (face, lo, hi), texture in zip(sides, walls)
+    ] + [
         box((near, 0, near), (far, 0, far), base, faces=disc, angle=angle),
         box((near, 1, near), (far, 1, far), base, faces=disc, angle=angle),
         # Both neck boxes are deformed: the tube shrinks by a tenth of a
@@ -624,18 +684,16 @@ def entity_shape(name, props, content=None):
     if base == "shulker_box" or color:
         return shulker_box(color, props.get("facing", "up"))
     if name == "minecraft:bell":
-        # The hanger comes from the block model; this is the bell itself,
-        # a 6x7x6 body with its wider lip under it. The one block entity
-        # the game sets straight in, with neither a turn nor a yaw.
         texture = "entity/bell/bell_body"
         return [
             cube((5, 6, 5), (6, 7, 6), (0, 0), texture, NO_TURN),
             cube((4, 4, 4), (8, 2, 8), (0, 13), texture, NO_TURN),
         ]
     if name == "minecraft:conduit":
-        return [box((5 / 16, 5 / 16, 5 / 16), (11 / 16, 11 / 16, 11 / 16), "entity/conduit/base", (0, 0, 16, 16))]
+        return [cube((5, 5, 5), (6, 6, 6), (0, 0), "entity/conduit/base", NO_TURN)]
     if name == "minecraft:decorated_pot":
-        return decorated_pot(angle_for(props))
+        sherds = content[1] if content and content[0] == "pot" else None
+        return decorated_pot(angle_for(props), sherds)
     if name in ("minecraft:end_portal", "minecraft:end_gateway"):
         portal = name.endswith("end_portal")
         return [box((0, 12 / 16 if portal else 0, 0), (1, 12.1 / 16 if portal else 1, 1), f"effect/{base}")]

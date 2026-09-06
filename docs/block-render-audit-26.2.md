@@ -349,7 +349,7 @@
 | minecraft:dead_tube_coral_block | клиентский JSON | block texture | variants |
 | minecraft:dead_tube_coral_fan | клиентский JSON | block texture | variants |
 | minecraft:dead_tube_coral_wall_fan | клиентский JSON | block texture | variants |
-| minecraft:decorated_pot | составная | entity/effect texture | корпус/горло; без NBT-рисунков черепков |
+| minecraft:decorated_pot | составная | entity/effect texture | корпус/горло и четыре NBT-рисунка черепков |
 | minecraft:deepslate | клиентский JSON | block texture | variants, стабильный weighted-вариант |
 | minecraft:deepslate_brick_slab | клиентский JSON | block texture | variants |
 | minecraft:deepslate_brick_stairs | клиентский JSON | block texture | variants, uvlock |

@@ -1,5 +1,7 @@
 """Shared Minecraft block mesh construction for PNG and USDZ consumers."""
 
+import hashlib
+
 import numpy as np
 import pyvista as pv
 import trimesh
@@ -129,7 +131,11 @@ class Atlas:
         self.index = {}
 
     def add(self, image):
-        key = id(image)
+        key = (
+            image.mode,
+            image.size,
+            hashlib.blake2b(image.tobytes(), digest_size=16).digest(),
+        )
         if key not in self.index:
             self.index[key] = len(self.images)
             self.images.append(image)
@@ -176,6 +182,14 @@ def face_texture_key(direction, faces):
 def uv_for_rect(rect):
     u0, u1, v0, v1 = rect
     return np.array([[u0, v0], [u1, v0], [u1, v1], [u0, v1]], dtype=np.float32)
+
+
+def uv_points_for_rect(rect, points):
+    u0, u1, v0, v1 = rect
+    width, height = u1 - u0, v1 - v0
+    return np.asarray([
+        (u0 + width * u, v1 - height * v) for u, v in points
+    ], dtype=np.float32)
 
 
 FACE_UV_AXES = {
@@ -257,13 +271,13 @@ def box_corners(lo, hi):
     ], dtype=np.float32)
 
 
-def rotate_y(points, degrees):
+def rotate_y(points, degrees, pivot=(0.5, 0.5)):
     angle = np.radians(degrees)
     cosine, sine = np.cos(angle), np.sin(angle)
     result = points.copy()
-    x, z = points[:, 0] - 0.5, points[:, 2] - 0.5
-    result[:, 0] = x * cosine - z * sine + 0.5
-    result[:, 2] = x * sine + z * cosine + 0.5
+    x, z = points[:, 0] - pivot[0], points[:, 2] - pivot[1]
+    result[:, 0] = x * cosine - z * sine + pivot[0]
+    result[:, 2] = x * sine + z * cosine + pivot[1]
     return result
 
 
@@ -418,7 +432,12 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 built.append({"lo": element["lo"], "hi": element["hi"], "faces": faces})
         if built:
             generic[index] = built
-    if not resolved and not generic and not specials:
+    entity_geometry = []
+    for anchor, parts in structure_parts(src):
+        for part in resolve_special_parts(parts, bank, atlas):
+            entity_geometry.append((anchor, part))
+
+    if not resolved and not generic and not specials and not entity_geometry:
         return [], [], set(), np.zeros_like(solid)
 
     occluder = np.zeros_like(solid)
@@ -444,13 +463,6 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     pane_connectable = occluder | pane_family
     wall_connectable = occluder | wall_family | fence_gate_family
     bars_connectable = occluder | bars_family
-
-    entity_geometry = []
-    for anchor, parts in structure_parts(src):
-        for part in parts:
-            image = bank.read_asset(part["texture"], part["tint"], part["crop"], part["alpha"])
-            if image is not None:
-                entity_geometry.append((anchor, part, atlas.add(image)))
 
     texture = None
     rects = []
@@ -500,7 +512,8 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         name = index_names[key[0] if isinstance(key, tuple) else key]
         for part in parts:
             lo, hi = part["lo"], part["hi"]
-            corners = rotate_y(box_corners(lo, hi), part["angle"])
+            raw_corners = np.asarray(part.get("corners", box_corners(lo, hi)), dtype=np.float32)
+            corners = rotate_y(raw_corners, part["angle"])
             for direction, indices in CUBE_FACES.items():
                 axis = next(i for i, value in enumerate(FACE_STEP[direction]) if value)
                 edge = lo[axis] == 0 if FACE_STEP[direction][axis] < 0 else hi[axis] == 1
@@ -614,10 +627,30 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 rect = rects[face_ids.get(key, face_ids.get("all"))]
                 append(pos, CUBE_CORNERS[CUBE_FACES[direction]], uv_for_rect(rect))
 
-    for anchor, part, rect_index in entity_geometry:
+    for anchor, part in entity_geometry:
         origin = np.array([anchor], dtype=np.float32)
-        corners = box_corners(part["lo"], part["hi"])
-        for direction in part.get("only_faces") or CUBE_FACES:
+        pivot = part.get("pivot", (0.5, 0.5))
+        angle = part.get("angle", 0)
+        if "quads" in part:
+            rect = rects[part["rect_index"]]
+            mapped_uv = part.get("quad_uvs")
+            for index, quad in enumerate(part["quads"]):
+                uv = (
+                    uv_points_for_rect(rect, mapped_uv[index])
+                    if mapped_uv else uv_for_rect(rect)
+                )
+                vertices = rotate_y(np.asarray(quad, dtype=np.float32), angle, pivot)
+                append(origin, vertices, uv)
+            continue
+        corners = rotate_y(box_corners(part["lo"], part["hi"]), angle, pivot)
+        directions = part.get("only_faces") or CUBE_FACES
+        for direction in directions:
+            if "rect_by_face" in part:
+                if direction not in part["rect_by_face"]:
+                    continue
+                rect_index = part["rect_by_face"][direction]
+            else:
+                rect_index = part["rect_index"]
             append(origin, corners[CUBE_FACES[direction]], uv_for_rect(rects[rect_index]))
 
     flat_entities = []
@@ -691,11 +724,16 @@ def triangulate_quads(quads):
 
 
 ATLAS_UPSCALE = 8
+MAX_ATLAS_SIZE = 2048
 
 
 def upscale_atlas(image):
+    factor = min(
+        ATLAS_UPSCALE,
+        max(1, MAX_ATLAS_SIZE // max(image.width, image.height)),
+    )
     return image.resize(
-        (image.width * ATLAS_UPSCALE, image.height * ATLAS_UPSCALE), Image.NEAREST,
+        (image.width * factor, image.height * factor), Image.NEAREST,
     )
 
 

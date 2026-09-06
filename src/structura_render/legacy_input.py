@@ -27,5 +27,8 @@ def as_structure_nbt(path):
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="structura-render-legacy-"))
     dst = tmp_dir / (path.stem + ".nbt")
-    convert(str(path), str(dst), DATA_VERSION, JAVA_VERSION)
+    convert(
+        str(path), str(dst), DATA_VERSION, JAVA_VERSION,
+        preserve_all_entities=True,
+    )
     return dst

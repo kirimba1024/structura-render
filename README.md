@@ -13,7 +13,10 @@ rotation → UV pipeline the Minecraft client itself uses, so ordinary vanilla
 blocks — stairs, doors, fences, plants, redstone and the rest — come from the
 game's data rather than per-block guesses. Vanilla's non-model renderers
 (chests, banners, heads, shulker boxes, conduit, bell, decorated pots,
-portals and fluids) share a compact textured compound-model layer.
+portals and fluids) share a compact textured compound-model layer. Structure
+entities are preserved too: paintings, populated item frames, armor stands
+with equipment, dropped items, and static neutral-pose models for every
+vanilla entity through 26.2.
 
 <p>
   <img src="docs/screenshots/usdz-floating-island.png" width="49%" alt="USDZ export of a floating island structure, viewed in a 3D viewer">
@@ -47,6 +50,10 @@ portals and fluids) share a compact textured compound-model layer.
 - **`block_model.py`** — generic blockstate/model resolver: variants,
   multipart conditions, parent chains, element rotations, UV rotation and
   UV locking. Builds real geometry for every JSON-modelled vanilla block.
+- **`entities.py` / `entity_models.py` / `item_models.py`** — paintings,
+  frames and static vanilla entity models with per-face UVs. Equipment, framed
+  items and dropped items use the client pack's base item model; incompatible,
+  future or modded entities retain a visible compact fallback.
 - **`textures.py`** — resolves `#variable` texture references and samples
   the real PNG, including per-pixel alpha for correct occlusion (glass,
   leaves, iron bars).
@@ -68,10 +75,10 @@ portals and fluids) share a compact textured compound-model layer.
   block classification, described above.
 - **`docs/block-render-audit-26.2.md`** — one row for every vanilla
   blockstate, including explicit dynamic-render limitations.
-- **`legacy_input.py`** (`legacy` extra) — every entry point also accepts a
-  legacy `.schematic`, sponge `.schem`, `.litematic`, or anything else
-  [amulet-core](https://github.com/Amulet-Team/Amulet-Core) recognizes, and
-  converts it to Structure NBT on the fly. No manual conversion step.
+- **`legacy_input.py`** (`legacy` extra) — every entry point also accepts
+  legacy `.schematic` and Sponge `.schem` files recognized by
+  [amulet-core](https://github.com/Amulet-Team/Amulet-Core), and converts them
+  to Structure NBT on the fly. No manual conversion step.
 
 ## Quick start
 
@@ -86,7 +93,7 @@ Swap `[usdz]` for `[gltf]`, `[obj]` or `[stl]` (or several, comma-separated)
 for the other 3D formats — `structura-export-gltf`, `structura-export-obj`,
 `structura-export-stl` follow the same `src dst` signature.
 
-Have a legacy `.schematic`/`.schem`/`.litematic` instead of Structure NBT?
+Have a legacy `.schematic`/`.schem` instead of Structure NBT?
 Add the `legacy` extra (`[usdz,legacy]`) and pass it straight in — no
 separate conversion step:
 
@@ -109,6 +116,13 @@ older than 1.13 uses a different asset layout entirely (pre-"flattening")
 and isn't supported. On load, the package checks for `heavy_core` (added
 in 1.21) and warns on stderr if it's missing, as a cheap signal that the
 pointed-at client predates 1.21 — not exhaustive, just a sanity check.
+
+Entity rendering is intentionally static. It does not evaluate animation,
+AI, item predicates, glint, armor trims or arbitrary display transforms.
+The shared mob rigs preserve identity, scale and silhouette for previews; they
+are not a replacement for each mob renderer's animated model hierarchy. Those
+limits affect only entity previews; block geometry continues to come from the
+client model pipeline described above.
 
 Use the lighter `hero` extra when no 3D export is needed; plain projection
 rendering (`structura-render-projections`, no extra) skips PyVista and

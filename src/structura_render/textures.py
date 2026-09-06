@@ -1,8 +1,6 @@
 """Resolve vanilla block textures, extracted once from the player's own
 licensed client jar into assets/minecraft/textures/block/ (not redistributed,
 just a local convenience cache for this private project's own renders)."""
-from pathlib import Path
-
 import numpy as np
 from PIL import Image
 
@@ -93,6 +91,10 @@ class TextureBank:
             path = TEXTURES / f"{stem}.png"
             if not path.exists() and stem == "entity/banner/banner_base":
                 path = TEXTURES / "entity/banner_base.png"
+            if (not path.exists()
+                    and stem.startswith("entity/decorated_pot/")
+                    and stem.endswith("_pottery_pattern")):
+                path = TEXTURES / "entity/decorated_pot/decorated_pot_side.png"
             image = self._open(path)
         if image is not None and crop:
             image = image.crop(crop)

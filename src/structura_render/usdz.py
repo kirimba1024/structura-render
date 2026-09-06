@@ -215,8 +215,8 @@ def main():
     meshes, flat_entities, textured_indices, occluder = build_textured_meshes(
         src, solid, state, index_names, index_props, bank,
     )
-    if not solid.any():
-        raise SystemExit("structure contains no solid blocks")
+    if not solid.any() and not meshes and not flat_entities:
+        raise SystemExit("structure produced no visible geometry")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -291,7 +291,7 @@ def main():
         + sum(len(p) for p, *_ in flat_entities)
         + flat_point_count
     )
-    print(f"{args.output} points={total_points} entities={len(flat_entities)}")
+    print(f"{args.output} points={total_points} source_entities={len(src.entities)}")
 
 
 if __name__ == "__main__":

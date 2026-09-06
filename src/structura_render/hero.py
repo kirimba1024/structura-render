@@ -48,6 +48,8 @@ def main():
         textured_meshes, flat_entities, textured_indices, _ = build_textured_meshes(
             src, solid, state, index_names, index_props, bank,
         )
+    if not solid.any() and not textured_meshes and not flat_entities:
+        raise SystemExit("structure produced no visible geometry")
 
     colors = np.zeros((sx, sy, sz, 4), dtype=np.uint8)
     flat_solid = np.zeros_like(solid)

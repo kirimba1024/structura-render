@@ -2,7 +2,7 @@
 import argparse
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from pxr import Sdf, Usd, UsdGeom, UsdUtils
 
@@ -18,8 +18,17 @@ def variant(value):
 
 
 def package(output, variants, set_name="Building", default=None):
+    variants = list(variants)
+    names = [name for name, _ in variants]
+    if not variants:
+        raise ValueError("at least one variant is required")
+    if len(names) != len(set(names)):
+        raise ValueError("variant names must be unique")
+    invalid = [name for name in names if not Sdf.Path.IsValidIdentifier(name)]
+    if invalid:
+        raise ValueError(f"invalid variant names: {invalid}")
     default = default or variants[0][0]
-    if default not in {name for name, _ in variants}:
+    if default not in names:
         raise ValueError(f"unknown default variant: {default}")
 
     with tempfile.TemporaryDirectory() as directory:
@@ -28,9 +37,21 @@ def package(output, variants, set_name="Building", default=None):
         for index, (name, source) in enumerate(variants):
             target = directory / str(index)
             with zipfile.ZipFile(source) as archive:
-                root_layer = archive.namelist()[0]
+                members = archive.infolist()
+                if not members:
+                    raise ValueError(f"empty USDZ: {source}")
+                paths = [PurePosixPath(member.filename) for member in members]
+                if any(path.is_absolute() or ".." in path.parts for path in paths):
+                    raise ValueError(f"unsafe USDZ member path: {source}")
+                root_layer = paths[0]
+                if len(root_layer.parts) != 1 or root_layer.suffix not in {
+                    ".usd", ".usda", ".usdc",
+                }:
+                    raise ValueError(f"USDZ root layer must be its first root file: {source}")
                 archive.extractall(target)
-            source_stage = Usd.Stage.Open(str(target / root_layer))
+            source_stage = Usd.Stage.Open(str(target / str(root_layer)))
+            if source_stage is None or not source_stage.GetDefaultPrim():
+                raise ValueError(f"USDZ has no valid default prim: {source}")
             references.append((
                 name, f"{index}/{root_layer}", source_stage.GetDefaultPrim().GetPath(),
             ))

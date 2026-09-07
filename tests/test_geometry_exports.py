@@ -71,6 +71,93 @@ def meshes_for(src, bank):
     return build_textured_meshes(src, solid, state, names, props, bank)[0]
 
 
+@pytest.mark.parametrize('format_name', ['glb', 'gltf'])
+@pytest.mark.skipif(not os.environ.get('STRUCTURA_GLTF_VALIDATOR'), reason='Khronos validator runs in interoperability CI')
+def test_khronos_validator_accepts_exported_materials(tmp_path, assets, format_name):
+    src = structure('stone', 'cutout', 'translucent')
+    src.data_version = 3955
+    source = tmp_path / 'source.nbt'
+    save_structure(src, source, src.size)
+    output = export_structure(source, tmp_path / f'model.{format_name}', texture_bank=assets, strict=True)
+    result = subprocess.run([
+        os.environ.get('STRUCTURA_NODE', 'node'), os.environ['STRUCTURA_GLTF_VALIDATOR'], str(output),
+    ], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report['issues']['numErrors'] == report['issues']['numWarnings'] == 0
+
+
+@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
+def test_strict_export_preserves_file_and_replays_cached_notices(tmp_path, assets, format_name):
+    from structura_render import RenderWarning
+
+    src = structure('stone')
+    src.data_version = 3955
+    source = tmp_path / 'source.nbt'
+    save_structure(src, source, src.size)
+    (assets.context.root / 'textures/block/stone.png').unlink()
+    output = tmp_path / f'existing.{format_name}'
+    output.write_bytes(b'previous')
+    for _ in range(2):
+        with pytest.raises(ValueError, match='missing texture.*stone'):
+            export_structure(source, output, texture_bank=assets, strict=True)
+        assert output.read_bytes() == b'previous'
+    with pytest.warns(RenderWarning) as notices:
+        export_structure(source, output, texture_bank=assets)
+    assert len(notices) == 1 and str(notices[0].message).count('minecraft:block/stone') == 1
+
+
+def test_diagnostics_do_not_cross_resource_contexts(tmp_path, assets):
+    from structura_render import RenderWarning
+    from structura_render.textures import TextureBank
+
+    src = structure('stone')
+    src.data_version = 3955
+    source = tmp_path / 'source.nbt'
+    save_structure(src, source, src.size)
+    missing = TextureBank(AssetContext(tmp_path / 'missing'))
+    with pytest.warns(RenderWarning, match='approximate shape'):
+        export_structure(source, tmp_path / 'fallback.glb', texture_bank=missing, allow_flat_fallback=True)
+    export_structure(source, tmp_path / 'complete.glb', texture_bank=assets, strict=True)
+
+
+@pytest.mark.parametrize('kind', ['unknown_entity', 'painting'])
+def test_entity_approximation_is_reported_before_output(tmp_path, assets, kind):
+    from amulet_nbt import DoubleTag, IntTag, ListTag
+
+    src = structure('stone')
+    src.data_version = 3955
+    src.entities = [CompoundTag({
+        'pos': ListTag([DoubleTag(0)] * 3), 'blockPos': ListTag([IntTag(0)] * 3),
+        'nbt': CompoundTag({'id': StringTag(f'minecraft:{kind}'), 'variant': StringTag('minecraft:unavailable')}),
+    })]
+    source = tmp_path / 'source.nbt'
+    save_structure(src, source, src.size)
+    output = tmp_path / 'existing.glb'
+    output.write_bytes(b'previous')
+    with pytest.raises(ValueError, match=kind):
+        export_structure(source, output, texture_bank=assets, strict=True)
+    assert output.read_bytes() == b'previous'
+
+
+def test_strict_hero_rejects_before_creating_plotter(tmp_path, assets, monkeypatch):
+    import pyvista as pv
+    from structura_render import render_hero
+
+    src = structure('stone')
+    src.data_version = 3955
+    source = tmp_path / 'source.nbt'
+    save_structure(src, source, src.size)
+    (assets.context.root / 'textures/block/stone.png').unlink()
+    monkeypatch.setattr(pv, 'system_supports_plotting', lambda: True)
+    monkeypatch.setattr(pv, 'Plotter', lambda *args, **kwargs: pytest.fail('plotter created before strict validation'))
+    output = tmp_path / 'existing.png'
+    output.write_bytes(b'previous')
+    with pytest.raises(ValueError, match='missing texture'):
+        render_hero(source, output, texture_bank=assets, strict=True)
+    assert output.read_bytes() == b'previous'
+
+
 @pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
 def test_python_export_matches_cli_and_preserves_source(tmp_path, assets, format_name):
     src = structure('stone', 'cutout', 'translucent')

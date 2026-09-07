@@ -207,7 +207,7 @@ def package_usdz(source, output):
     return output
 
 
-def export_usdz(src, output, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+def export_usdz(src, output, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False):
     from pxr import Sdf, Usd, UsdGeom
 
     from .mesh import (
@@ -222,7 +222,7 @@ def export_usdz(src, output, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_s
     state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
 
     meshes, flat_entities, textured_indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size, strict=strict,
     )
     if not solid.any() and not meshes and not flat_entities:
         raise ValueError("structure produced no visible geometry")

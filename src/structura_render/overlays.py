@@ -39,7 +39,7 @@ def _blend(canvas, mask, color, opacity):
         canvas[mask, 3] = alpha[:, 0] * 255
 
 
-def draw_overlays(canvas, overlays, view, size, axis, orient):
+def draw_overlays(canvas, overlays, view, size, axis, orient, *, depth=None):
     overlays.validate(size)
     canvas = canvas.astype(np.float64)
     for name, color, opacity in (
@@ -50,6 +50,10 @@ def draw_overlays(canvas, overlays, view, size, axis, orient):
         mask = getattr(overlays, name)
         if mask is None:
             continue
+        if depth is not None:
+            selection = [slice(None)] * 3
+            selection[axis] = slice(*depth)
+            mask = mask[tuple(selection)]
         plane = orient(mask.any(axis=axis), view)
         _blend(canvas, plane, color, opacity)
         if name == "envelope":

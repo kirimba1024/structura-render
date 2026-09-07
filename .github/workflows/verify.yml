@@ -114,3 +114,46 @@ jobs:
           if extra in {"base", "hero", "usdz"}:
               assert importlib.util.find_spec("trimesh") is None
           PYTHON
+
+  interoperability:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Install public API and validation tools
+        run: |
+          python -m pip install pytest pyright==1.1.411
+          python - <<'PYTHON'
+          import pathlib, subprocess, sys
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          subprocess.check_call([sys.executable, "-m", "pip", "install", f"{wheel}[gltf]"])
+          PYTHON
+          npm install --prefix "$RUNNER_TEMP/structura-validation" --ignore-scripts gltf-validator@2.0.0-dev.3.10
+      - name: Check public types outside the source checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/structura-types/checks"
+          cp checks/public_api.py "$RUNNER_TEMP/structura-types/checks/"
+          cp pyrightconfig.json "$RUNNER_TEMP/structura-types/"
+          cd "$RUNNER_TEMP/structura-types"
+          pyright --pythonpath "$(which python)"
+      - name: Validate exports with Khronos and run packaged examples
+        run: |
+          export NODE_PATH="$RUNNER_TEMP/structura-validation/node_modules"
+          export STRUCTURA_GLTF_VALIDATOR="$GITHUB_WORKSPACE/checks/validate_gltf.cjs"
+          python -m pytest -q tests/test_geometry_exports.py -k khronos
+          structura-render examples "$RUNNER_TEMP/structura-demo"
+          structura-render doctor --json
+          structura-render projections "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/floor.png" --views top --depth 1 4
+          structura-convert "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/demo.litematic" --strict
+          structura-render gltf "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/demo.glb" --allow-flat-fallback
+          node checks/validate_gltf.cjs "$RUNNER_TEMP/structura-demo/demo.glb"

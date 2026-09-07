@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Add `depth=(start, stop)` / `--depth START STOP` to 2D projections for layers
+  and cross-sections. Retain full image alignment and clip overlays consistently.
+- Report geometry fallbacks through bounded, operation-local `RenderWarning`
+  notices. Add opt-in strict PNG/3D export that fails before writing; preserve
+  cache isolation and replay notices on warm caches.
+- Ship type information for public APIs and lazy exports. Require core 0.5
+  with bounded NBT reads and the typed native conversion API.
+- Validate GLB/glTF using the official Khronos Validator, run packaged demo
+  commands in CI, and verify public types against the installed wheel.
+
 ## 0.6.0
 
 - Add `export_structure(source, output, ...)` for GLB/glTF/OBJ/STL/USDZ from

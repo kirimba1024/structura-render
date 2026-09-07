@@ -9,6 +9,7 @@ from structura_core import AIR_NAMES
 
 from .assets import current_context
 from .block_model import AXIS_VEC, FACE_CORNERS, block_elements, post_texture
+from .diagnostics import render_diagnostics, report_issue
 from .entities import structure_parts
 from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
@@ -403,9 +404,9 @@ def resolve_special_parts(shape, bank, atlas):
     return parts
 
 
-def build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+def build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False):
     context = getattr(bank, "context", None) or current_context()
-    with context.activate():
+    with render_diagnostics(strict=strict), context.activate():
         return _build_textured_geometry(src, solid, state, index_names, index_props, bank,
                                         max_atlas_size=max_atlas_size)
 
@@ -434,6 +435,8 @@ def _build_textured_geometry(src, solid, state, index_names, index_props, bank, 
             faces = {"all": image} if image is not None else bank.resolve(name)
             if faces:
                 resolved[index] = {key: atlas.add(image) for key, image in faces.items()}
+            else:
+                report_issue("post texture unavailable; coloured fallback", name)
             continue
         elements = block_elements(name, props)
         if nbt_sensitive(name):
@@ -466,6 +469,7 @@ def _build_textured_geometry(src, solid, state, index_names, index_props, bank, 
         if elements is None:
             if shape is not None:
                 continue
+            report_issue("block model unavailable; approximate shape", name)
             faces = bank.resolve(name)
             if faces:
                 resolved[index] = {key: atlas.add(image) for key, image in faces.items()}
@@ -732,10 +736,10 @@ def _build_textured_geometry(src, solid, state, index_names, index_props, bank, 
     return [mesh], flat_entities, textured_indices, occluder
 
 
-def build_textured_meshes(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+def build_textured_meshes(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False):
     """Compatibility adapter returning PyVista meshes and textures."""
     meshes, entities, indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size, strict=strict,
     )
     return [mesh.to_pyvista() for mesh in meshes], entities, indices, occluder
 
@@ -851,10 +855,10 @@ def export_parts(meshes, flat_groups, center):
     return export(meshes, flat_groups, center)
 
 
-def structure_export_parts(src, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+def structure_export_parts(src, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False):
     state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
     meshes, _, textured_indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size, strict=strict,
     )
     flat_groups = flat_block_groups(state, index_names, textured_indices, occluder)
     center = np.asarray(src.size, dtype=np.float32) / 2.0

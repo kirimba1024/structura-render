@@ -14,6 +14,17 @@ its alpha and every export agrees with the preview.
 
 ## Quick start
 
+Try the bundled demo with the base installation:
+
+```bash
+pip install structura-render
+structura-render examples demo
+structura-render projections demo/demo.nbt demo/views.png
+structura-render projections demo/demo.nbt demo/floor.png --views top --depth 1 4
+```
+
+This produces images without Minecraft resources or a graphics backend.
+
 Install only the output you need:
 
 ```bash
@@ -109,6 +120,43 @@ Projection images need neither Minecraft textures nor a graphics backend.
 They show the nearest non-air block cell rather than textured model geometry.
 An explicit `structure_void` is invisible. Plain projections allocate memory
 according to image area, without constructing a dense 3D volume.
+
+### Layers and cross-sections
+
+```python
+floor = render_projection(structure, view="top", depth=(1, 4), transparent=True)
+floor.save("floor.png")
+render_projections(structure, "section.png", views=("north",), depth=(0, 1))
+```
+
+`depth=(start, stop)` includes local coordinates from `start` up to, but not
+including, `stop`: Y for top/bottom, Z for north/south, X for west/east. A range
+of width one shows one layer. Both ends must be inside that axis's bounds;
+the lower end must be smaller. Opposite views use the same coordinate range.
+The image keeps its full width, height and alignment, and the source is not
+modified. Supplied envelope/aura masks use the same depth range. If a sheet
+contains views along different axes, the range applies to each selected axis.
+
+### Notices and strict exports
+
+`export_structure(..., strict=True)` and `render_hero(..., strict=True)` reject
+reported approximations before writing the output. The CLI equivalent is
+`--strict` on the PNG and 3D commands. Default mode emits a single
+`RenderWarning`, listing missing textures, unresolved block models, approximate
+entity models, markers and omitted entities. Repeated issues are combined and
+examples are capped; reusing a `TextureBank` retains the same notices.
+CLI notices go to stderr and successful output paths to stdout.
+
+Strict mode checks reported fallback paths; it does not certify pixel-perfect
+Minecraft fidelity, animation, printability or game-specific entity semantics.
+Intentional cell-colour projections and `no_textures=True` images retain their
+explicitly requested style. Existing public calls and low-level writers remain
+available. Public entry points ship type information for IDE completion.
+
+Native input and decompressed NBT each default to a 256 MiB limit in core.
+For larger trusted inputs, create `Structure(path, max_nbt_bytes=...)` or use
+`structura_core.load_structure(..., max_nbt_bytes=...)`, then pass that object
+to the renderer. The byte guard does not bound total process memory.
 
 Default guards are 16,000,000 output pixels (`max_pixels` / `--max-pixels`),
 16,000,000 cells in a 3D bounding box (`max_voxels` / `--max-voxels`) and

@@ -2,25 +2,34 @@
 
 import argparse
 import math
+import warnings
+from os import PathLike
+from typing import Literal, Optional, Union
 
 import numpy as np
 from PIL import Image
+from structura_core import Structure
 from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .camera import framing_distance, orthographic_scale
+from .diagnostics import RenderWarning
 from .export_io import write_image
 from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
 from .projections import DEFAULT_MAX_PIXELS, _check_pixels
+from .textures import TextureBank
 
 
 class PlottingUnavailableError(RuntimeError):
     pass
 
 
-def render_hero(source, output=None, *, window=1600, azimuth=35.0, elevation=35.0,
-                zoom=1.0, color_mode="family", no_textures=False, texture_bank=None,
-                transparent=False, orthographic=False, max_pixels=DEFAULT_MAX_PIXELS,
-                max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+def render_hero(source: Union[str, PathLike[str], Structure], output: Optional[Union[str, PathLike[str]]] = None, *,
+                window: int = 1600, azimuth: float = 35.0, elevation: float = 35.0,
+                zoom: float = 1.0, color_mode: Literal["family", "block"] = "family",
+                no_textures: bool = False, texture_bank: Optional[TextureBank] = None,
+                transparent: bool = False, orthographic: bool = False, max_pixels: int = DEFAULT_MAX_PIXELS,
+                max_voxels: int = DEFAULT_MAX_VOXELS, max_atlas_size: int = DEFAULT_MAX_ATLAS_SIZE,
+                strict: bool = False) -> Image.Image:
     """Return a Pillow image from a path or Structure; optionally save it atomically."""
     if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
         raise ValueError("window must be a positive integer")
@@ -33,7 +42,7 @@ def render_hero(source, output=None, *, window=1600, azimuth=35.0, elevation=35.
 
     from .legacy_input import load_structure
     from .mesh import build_textured_meshes, flat_rgba, voxel_state
-    from .textures import MISSING_ASSETS_MESSAGE, TextureBank
+    from .textures import MISSING_ASSETS_MESSAGE
 
     if not pv.system_supports_plotting():
         raise PlottingUnavailableError("no supported plotting backend")
@@ -47,7 +56,7 @@ def render_hero(source, output=None, *, window=1600, azimuth=35.0, elevation=35.
         if not bank.available():
             raise ValueError(MISSING_ASSETS_MESSAGE)
         textured_meshes, flat_entities, textured_indices, _ = build_textured_meshes(
-            src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
+            src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size, strict=strict,
         )
     if not solid.any() and not textured_meshes and not flat_entities:
         raise ValueError("structure produced no visible geometry")
@@ -127,16 +136,21 @@ def main(argv=None):
     parser.add_argument("--max-voxels", type=int, default=DEFAULT_MAX_VOXELS)
     parser.add_argument("--max-atlas-size", type=int, default=DEFAULT_MAX_ATLAS_SIZE, help="maximum texture atlas side in pixels")
     parser.add_argument("--allow-skip", action="store_true", help="succeed without an image if plotting is unavailable")
+    parser.add_argument("--strict", action="store_true", help="reject reported approximations before writing")
     args = parser.parse_args(argv)
     from .legacy_input import load_structure
 
     try:
         src = load_structure(args.src, region=args.region, max_blocks=args.max_blocks)
-        render_hero(src, args.output, window=args.window, azimuth=args.azimuth,
-                    elevation=args.elevation, zoom=args.zoom, color_mode=args.color_mode,
-                    no_textures=args.no_textures, transparent=args.transparent,
-                    orthographic=args.orthographic, max_pixels=args.max_pixels,
-                    max_voxels=args.max_voxels, max_atlas_size=args.max_atlas_size)
+        with warnings.catch_warnings(record=True) as notices:
+            warnings.simplefilter("always", RenderWarning)
+            render_hero(src, args.output, window=args.window, azimuth=args.azimuth,
+                        elevation=args.elevation, zoom=args.zoom, color_mode=args.color_mode,
+                        no_textures=args.no_textures, transparent=args.transparent,
+                        orthographic=args.orthographic, max_pixels=args.max_pixels,
+                        max_voxels=args.max_voxels, max_atlas_size=args.max_atlas_size, strict=args.strict)
+        for notice in notices:
+            parser._print_message(f"warning: {notice.message}\n")
     except PlottingUnavailableError as error:
         if args.allow_skip:
             print(f"hero render skipped: {error}")

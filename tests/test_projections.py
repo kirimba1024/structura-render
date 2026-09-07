@@ -37,6 +37,48 @@ def test_projection_does_not_allocate_a_volume():
     assert image.size == (3, 5)
 
 
+@pytest.mark.parametrize("view", VIEWS)
+def test_depth_range_matches_independent_dense_slice(view):
+    from copy import deepcopy
+
+    src = sample()
+    before = deepcopy(src.present)
+    axis, _ = VIEWS[view]
+    stop = src.size[axis] - 1
+    dense = np.full(src.size, -1, dtype=np.int32)
+    for pos, index in src.present.items():
+        if pos[axis] < stop and index != 2:
+            dense[pos] = index
+    actual = render_projection(src, view=view, depth=(0, stop), scale=1)
+    np.testing.assert_array_equal(actual, render_view(dense, src.palette, view, "family"))
+    assert src.present == before
+    assert actual.size == render_projection(src, view=view, scale=1).size
+
+
+@pytest.mark.parametrize("depth", [(0, 0), (-1, 2), (2, 1), (0, 5), (True, 2), (0.0, 2), (0,), "0:2"])
+def test_invalid_depth_preserves_output(tmp_path, depth):
+    output = tmp_path / "existing.png"
+    output.write_bytes(b"previous")
+    with pytest.raises(ValueError, match="depth"):
+        render_projections(sample(), output, views=["top"], depth=depth)
+    assert output.read_bytes() == b"previous"
+
+
+def test_depth_clips_overlays_without_mutating_masks():
+    from structura_render import ProjectionOverlays
+
+    src = sample()
+    src.present.clear()
+    mask = np.zeros(src.size, dtype=bool)
+    mask[0, 3, 0] = True
+    overlays = ProjectionOverlays(envelope=mask)
+    outside = render_projection(src, scale=1, transparent=True, overlays=overlays, depth=(0, 3))
+    inside = render_projection(src, scale=1, transparent=True, overlays=overlays, depth=(3, 4))
+    assert not np.asarray(outside).any()
+    assert np.asarray(inside)[..., 3].max() == 255
+    assert mask.sum() == 1 and mask[0, 3, 0]
+
+
 @pytest.mark.parametrize("options", [
     {"scale": 0}, {"scale": True}, {"scale": 1.2}, {"view": "missing"},
     {"color_mode": "missing"}, {"max_pixels": 0}, {"max_pixels": 3},

@@ -5,6 +5,7 @@ from functools import partial
 from PIL import Image
 
 from .assets import context_cached, current_context
+from .diagnostics import report_issue
 from .entity_models import model_parts
 from .entity_shapes import HALF_TURN_X, QUARTER_TURN_X, after, box, unwrap
 from .item_models import item_id, item_texture, stack_texture
@@ -575,6 +576,7 @@ def source_mob_parts(nbt, *, kind, family, textures, fallback_scale=1.0):
     parts = model_parts(kind, nbt, texture, angle=_yaw(nbt))
     if parts:
         return parts
+    report_issue("approximate entity model", kind)
     return dummy_parts(
         nbt, kind=kind, family=family, textures=textures, scale=fallback_scale,
     )
@@ -758,6 +760,7 @@ def end_crystal_parts(nbt):
 
 
 def marker_parts(nbt):
+    report_issue("entity shown as marker", _plain(nbt.get("id", "unknown")))
     texture = _asset("block/structure_block", "block/red_wool")
     part = box((-.2, 0, -.2), (.2, .4, .2), texture, angle=_yaw(nbt))
     part["pivot"] = (0.0, 0.0)
@@ -917,12 +920,16 @@ def structure_parts(structure):
             continue
         kind = _plain(nbt.get("id", ""))
         if not kind:
+            report_issue("entity omitted", "missing id")
             continue
         handler = HANDLERS.get(kind, marker_parts)
         origin = anchor_of(record, nbt, exact=kind not in HANGING)
         if origin is None:
+            report_issue("entity omitted; missing position", kind)
             continue
         parts = handler(nbt)
         if parts:
             result.append((origin, parts))
+        else:
+            report_issue("entity omitted; model/resources unavailable", kind)
     return result

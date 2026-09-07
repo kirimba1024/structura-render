@@ -9,8 +9,10 @@ import zipfile
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
+from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Iterator, Optional, Union
 
 _VERSION_MARKER_BLOCK = "heavy_core"
 _LAYOUT = 2
@@ -138,13 +140,13 @@ _RESOURCE = re.compile(r"(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+\Z")
 class AssetContext:
     """Own a resource root and its caches for one or more renders."""
 
-    def __init__(self, source=None):
+    def __init__(self, source: Optional[Union[str, PathLike[str]]] = None) -> None:
         root = minecraft_assets_root() if source is None else Path(source).expanduser().resolve()
         self.root = _extract_jar_assets(root) if root.is_file() and root.suffix == ".jar" else root
         self.data = _pack_data_root(self.root)
         self._caches = {}
 
-    def path(self, directory, identifier, suffix=""):
+    def path(self, directory: str, identifier: str, suffix: str = "") -> Path:
         if not _RESOURCE.fullmatch(identifier):
             raise ValueError(f"invalid resource identifier: {identifier!r}")
         namespace, name = identifier.split(":", 1) if ":" in identifier else ("minecraft", identifier)
@@ -156,13 +158,13 @@ class AssetContext:
     def cache(self, key):
         return self._caches.setdefault(key, {})
 
-    def clear(self):
+    def clear(self) -> None:
         """Discard cached data after changing files in this resource pack."""
         for cache in self._caches.values():
             cache.clear()
 
     @contextmanager
-    def activate(self):
+    def activate(self) -> Iterator["AssetContext"]:
         token = _active_context.set(self)
         try:
             yield self

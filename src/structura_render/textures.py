@@ -1,11 +1,13 @@
 """Textures and static animation frames from an isolated resource context."""
 
 import json
+from typing import Dict, Mapping, Optional, Tuple
 
 import numpy as np
 from PIL import Image
 
-from .assets import current_context
+from .assets import AssetContext, current_context
+from .diagnostics import report_issue
 
 MISSING_ASSETS_MESSAGE = (
     "Minecraft assets were not found; set STRUCTURA_MINECRAFT_ASSETS to a "
@@ -42,7 +44,7 @@ def _readable_water(image):
     return Image.fromarray(array)
 
 
-def tint_for(name, props=None):
+def tint_for(name: str, props: Optional[Mapping[str, str]] = None) -> Optional[Tuple[int, int, int]]:
     props = props or {}
     base = name.split(":", 1)[-1]
     if base.startswith("potted_"):
@@ -84,22 +86,27 @@ def tint_for(name, props=None):
 
 
 class TextureBank:
-    def __init__(self, context=None):
+    def __init__(self, context: Optional[AssetContext] = None) -> None:
         self.context = context if context is not None else current_context()
         self._cache = self.context.cache("block_textures")
         self._asset_cache = self.context.cache("asset_textures")
 
-    def available(self):
+    def available(self) -> bool:
         return all((self.context.root / directory).is_dir()
                    for directory in ("blockstates", "models/block", "textures/block"))
 
-    def read_texture(self, stem, tint=None):
+    def read_texture(self, stem: str, tint: Optional[Tuple[int, int, int]] = None) -> Optional[Image.Image]:
         image = self._read(stem)
+        if image is None:
+            report_issue("missing texture", stem if ":" in stem else f"minecraft:block/{stem}")
         return _tint(image, tint) if image and tint else image
 
-    def read_asset(self, stem, tint=None, crop=None, alpha=255):
+    def read_asset(self, stem: str, tint: Optional[Tuple[int, int, int]] = None,
+                   crop: Optional[Tuple[int, int, int, int]] = None, alpha: int = 255) -> Optional[Image.Image]:
         key = (stem, crop, tint, alpha)
         if key in self._asset_cache:
+            if self._asset_cache[key] is None:
+                report_issue("missing texture", stem)
             return self._asset_cache[key]
         if stem.startswith("effect/"):
             image = self._effect(stem)
@@ -121,6 +128,8 @@ class TextureBank:
             values[..., 3] = values[..., 3].astype(np.uint16) * alpha // 255
             image = Image.fromarray(values, "RGBA")
         self._asset_cache[key] = image
+        if image is None:
+            report_issue("missing texture", stem)
         return image
 
     @staticmethod
@@ -174,7 +183,7 @@ class TextureBank:
         self._cache[stem] = image
         return image
 
-    def resolve(self, block_name):
+    def resolve(self, block_name: str) -> Optional[Dict[str, Image.Image]]:
         base = block_name.split(":", 1)[-1]
         base = base.replace("wall_torch", "torch")
         base = "water" if base == "bubble_column" else base

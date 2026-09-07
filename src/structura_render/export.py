@@ -1,26 +1,34 @@
 """Export a structure through the same geometry and writers as the CLI."""
 
 import argparse
+import warnings
 from importlib import import_module
+from os import PathLike
 from pathlib import Path
+from typing import Optional, Union
 
+from structura_core import Structure
 from structura_core.limits import DEFAULT_MAX_BLOCKS
 
+from .diagnostics import RenderWarning
 from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
+from .textures import TextureBank
 
 FORMATS = {".glb": "gltf", ".gltf": "gltf", ".obj": "obj", ".stl": "stl", ".usdz": "usdz"}
 
 
-def export_structure(source, output, *, texture_bank=None, region=None,
-                     allow_flat_fallback=False, max_blocks=DEFAULT_MAX_BLOCKS,
-                     max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+def export_structure(source: Union[str, PathLike[str], Structure], output: Union[str, PathLike[str]], *,
+                     texture_bank: Optional[TextureBank] = None, region: Optional[str] = None,
+                     allow_flat_fallback: bool = False, max_blocks: int = DEFAULT_MAX_BLOCKS,
+                     max_voxels: int = DEFAULT_MAX_VOXELS, max_atlas_size: int = DEFAULT_MAX_ATLAS_SIZE,
+                     strict: bool = False) -> Path:
     """Write GLB/glTF/OBJ/STL/USDZ from a path or Structure; return its absolute Path."""
     output = Path(output).expanduser().resolve()
     format_name = FORMATS.get(output.suffix.lower())
     if format_name is None:
         raise ValueError("output must end in .glb, .gltf, .obj, .stl or .usdz")
     from .legacy_input import load_structure
-    from .textures import MISSING_ASSETS_MESSAGE, TextureBank
+    from .textures import MISSING_ASSETS_MESSAGE
 
     try:
         if format_name == "usdz":
@@ -34,10 +42,10 @@ def export_structure(source, output, *, texture_bank=None, region=None,
         if format_name == "usdz":
             from .usdz import export_usdz
 
-            return export_usdz(src, output, bank, max_voxels=max_voxels, max_atlas_size=max_atlas_size)
+            return export_usdz(src, output, bank, max_voxels=max_voxels, max_atlas_size=max_atlas_size, strict=strict)
         from .mesh import structure_export_parts
 
-        parts = structure_export_parts(src, bank, max_voxels=max_voxels, max_atlas_size=max_atlas_size)
+        parts = structure_export_parts(src, bank, max_voxels=max_voxels, max_atlas_size=max_atlas_size, strict=strict)
         if not parts:
             raise ValueError("structure produced no visible geometry")
         if format_name == "stl":
@@ -71,14 +79,19 @@ def export_cli(format_name, argv=None):
     parser.add_argument("--max-voxels", type=int, default=DEFAULT_MAX_VOXELS)
     parser.add_argument("--max-atlas-size", type=int, default=DEFAULT_MAX_ATLAS_SIZE, help="maximum texture atlas side in pixels")
     parser.add_argument("--allow-flat-fallback", action="store_true", help="use coloured cubes when Minecraft assets are unavailable")
+    parser.add_argument("--strict", action="store_true", help="reject reported approximations before writing")
     args = parser.parse_args(argv)
     if FORMATS.get(Path(args.output).suffix.lower()) != format_name:
         parser.error(f"output extension must match {format_name}")
     try:
-        output = export_structure(
-            args.src, args.output, region=args.region, allow_flat_fallback=args.allow_flat_fallback,
-            max_blocks=args.max_blocks, max_voxels=args.max_voxels, max_atlas_size=args.max_atlas_size,
-        )
+        with warnings.catch_warnings(record=True) as notices:
+            warnings.simplefilter("always", RenderWarning)
+            output = export_structure(
+                args.src, args.output, region=args.region, allow_flat_fallback=args.allow_flat_fallback,
+                max_blocks=args.max_blocks, max_voxels=args.max_voxels, max_atlas_size=args.max_atlas_size, strict=args.strict,
+            )
+        for notice in notices:
+            parser._print_message(f"warning: {notice.message}\n")
     except (ValueError, OSError, RuntimeError) as error:
         parser.error(str(error))
     except ModuleNotFoundError as error:

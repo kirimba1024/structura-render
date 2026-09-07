@@ -4,11 +4,13 @@ import argparse
 import colorsys
 import hashlib
 import math
+from os import PathLike
 from pathlib import Path
+from typing import Iterable, Literal, Optional, Tuple, Union
 
 import numpy as np
 from PIL import Image, ImageDraw
-from structura_core import AIR_NAMES
+from structura_core import AIR_NAMES, Structure
 from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .export_io import write_image
@@ -174,8 +176,22 @@ def _projection_size(size, view, scale):
     return width * scale, height * scale
 
 
-def render_projection(source, *, view="top", scale=16, color_mode="family",
-                      transparent=False, max_pixels=DEFAULT_MAX_PIXELS, overlays=None):
+def _depth_range(depth, size, axis):
+    if depth is None:
+        return 0, size[axis]
+    if (not isinstance(depth, (tuple, list)) or len(depth) != 2
+            or any(isinstance(v, (bool, np.bool_)) or not isinstance(v, (int, np.integer)) for v in depth)
+            or not 0 <= depth[0] < depth[1] <= size[axis]):
+        raise ValueError(f"depth must be (start, stop) with 0 <= start < stop <= {size[axis]} along {'XYZ'[axis]}")
+    return tuple(int(v) for v in depth)
+
+
+def render_projection(source: Union[str, PathLike[str], Structure], *,
+                      view: Literal["top", "bottom", "north", "south", "west", "east"] = "top",
+                      scale: int = 16, color_mode: Literal["family", "block"] = "family",
+                      transparent: bool = False, max_pixels: int = DEFAULT_MAX_PIXELS,
+                      overlays: Optional[ProjectionOverlays] = None,
+                      depth: Optional[Tuple[int, int]] = None) -> Image.Image:
     """Return one unframed Pillow image from a path or in-memory Structure."""
     if color_mode not in {"family", "block"}:
         raise ValueError("color_mode must be 'family' or 'block'")
@@ -183,17 +199,20 @@ def render_projection(source, *, view="top", scale=16, color_mode="family",
     size = _projection_size(src.size, view, scale)
     _check_pixels(size, max_pixels)
     axis, reverse = VIEWS[view]
+    start, stop = _depth_range(depth, src.size, axis)
     plane_axes = tuple(i for i in range(3) if i != axis)
     plane_size = tuple(src.size[i] for i in plane_axes)
     visible = np.full(plane_size, -1, dtype=np.int32)
-    depth = np.full(plane_size, -1 if reverse else src.size[axis], dtype=np.int64)
+    visible_depth = np.full(plane_size, -1 if reverse else src.size[axis], dtype=np.int64)
     for pos, index in src.present.items():
+        if not start <= pos[axis] < stop:
+            continue
         if src.palette[index] in AIR_NAMES or src.palette[index] == "minecraft:structure_void":
             continue
         cell = tuple(pos[i] for i in plane_axes)
-        closer = pos[axis] > depth[cell] if reverse else pos[axis] < depth[cell]
+        closer = pos[axis] > visible_depth[cell] if reverse else pos[axis] < visible_depth[cell]
         if closer:
-            visible[cell], depth[cell] = index, pos[axis]
+            visible[cell], visible_depth[cell] = index, pos[axis]
     visible = orient(visible, view)
     channels = 4 if transparent else 3
     background = (0, 0, 0, 0) if transparent else (246, 246, 246)
@@ -207,21 +226,26 @@ def render_projection(source, *, view="top", scale=16, color_mode="family",
     if overlays is not None:
         if not isinstance(overlays, ProjectionOverlays):
             raise ValueError("overlays must be ProjectionOverlays")
-        canvas = draw_overlays(canvas, overlays, view, src.size, axis, orient)
+        canvas = draw_overlays(canvas, overlays, view, src.size, axis, orient, depth=(start, stop))
     return Image.fromarray(canvas).resize(size, Image.Resampling.NEAREST)
 
 
-def render_projections(source, output=None, *, views=tuple(VIEWS), scale=16,
-                       color_mode="family", max_pixels=DEFAULT_MAX_PIXELS, overlays=None):
+def render_projections(source: Union[str, PathLike[str], Structure], output: Optional[Union[str, PathLike[str]]] = None, *,
+                       views: Iterable[Literal["top", "bottom", "north", "south", "west", "east"]] = tuple(VIEWS),
+                       scale: int = 16, color_mode: Literal["family", "block"] = "family",
+                       max_pixels: int = DEFAULT_MAX_PIXELS, overlays: Optional[ProjectionOverlays] = None,
+                       depth: Optional[Tuple[int, int]] = None) -> Image.Image:
     """Return a sheet of named projections; optionally save it atomically."""
     src = load_structure(source)
     views = tuple(views)
     sizes = [_projection_size(src.size, view, scale) for view in views]
+    for view in views:
+        _depth_range(depth, src.size, VIEWS[view][0])
     _, _, size = _layout([(w + 16, h + 38) for w, h in sizes])
     _check_pixels(size, max_pixels)
     panels = [
         panel(np.asarray(render_projection(src, view=view, scale=1, color_mode=color_mode,
-                                           max_pixels=max_pixels, overlays=overlays)), view, scale)
+                                           max_pixels=max_pixels, overlays=overlays, depth=depth)), view, scale)
         for view in views
     ]
     return compose(panels, output)
@@ -237,6 +261,8 @@ def main(argv=None):
     parser.add_argument("--ground-y", type=int, help="local building level, drawn as a dashed line")
     parser.add_argument("--overlays", type=Path, help="NPZ with boolean envelope/aura/cavern_aura arrays")
     parser.add_argument("--scale", type=int, default=16, help="pixels per block")
+    parser.add_argument("--depth", type=int, nargs=2, metavar=("START", "STOP"),
+                        help="local depth range [START, STOP) along each selected view's axis")
     parser.add_argument("--color-mode", choices=("family", "block"), default="family")
     parser.add_argument(
         "--views", nargs="+",
@@ -254,7 +280,7 @@ def main(argv=None):
         overlays = (load_overlays(args.overlays, structure.size, max_blocks=args.max_blocks, ground_y=args.ground_y)
                     if args.overlays is not None else ProjectionOverlays(ground_y=args.ground_y))
         render_projections(structure, output, views=args.views, scale=args.scale,
-                           color_mode=args.color_mode, max_pixels=args.max_pixels, overlays=overlays)
+                           color_mode=args.color_mode, max_pixels=args.max_pixels, overlays=overlays, depth=args.depth)
     except (ValueError, OSError) as error:
         parser.error(str(error))
     print(output)

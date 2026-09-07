@@ -4,6 +4,7 @@ import math
 from functools import wraps
 
 from .assets import current_context, read_json
+from .diagnostics import report_issue
 
 DIRECTIONS = ("up", "down", "north", "south", "east", "west")
 AXIS_VEC = {
@@ -37,7 +38,8 @@ def safe(fn):
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
-        except _RESOLUTION_ERRORS:
+        except _RESOLUTION_ERRORS as error:
+            report_issue("invalid block model", f"{args[0]} ({error})")
             return None
     return wrapper
 

@@ -4,15 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.3.1"
+version = "0.3.2"
 description = "Minecraft block-model resolution, image rendering and 3D export (USDZ/glTF/OBJ/STL)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-  "structura-core>=0.2.2,<0.3",
+  "structura-core>=0.2.3,<0.3",
   "numpy>=1.26,<3",
   "Pillow>=11,<12",
-  "scipy>=1.13,<2",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +20,7 @@ usdz = ["pyvista>=0.46,<0.47", "usd-core>=26,<27"]
 gltf = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
 obj = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
 stl = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
-legacy = ["structura-core[legacy]>=0.2.2,<0.3"]
+legacy = ["structura-core[legacy]>=0.2.3,<0.3"]
 
 [project.scripts]
 structura-render-projections = "structura_render.projections:main"
@@ -30,7 +29,6 @@ structura-export-usdz = "structura_render.usdz:main"
 structura-export-gltf = "structura_render.gltf:main"
 structura-export-obj = "structura_render.obj:main"
 structura-export-stl = "structura_render.stl:main"
-structura-package-usdz-variants = "structura_render.usdz_variants:main"
 structura-build-full-cube-list = "structura_render.build_full_cube_list:main"
 structura-build-opaque-blocks = "structura_render.build_opaque_blocks:main"
 
@@ -42,3 +40,9 @@ structura_render = ["data/*.json"]
 
 [project.urls]
 Repository = "https://github.com/kirimba1024/structura-render"
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

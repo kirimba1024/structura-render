@@ -1,129 +1,145 @@
 # structura-render
 
-**Turn a Minecraft Structure NBT into a real photo or a 3D file — using
-your own game's actual textures and block shapes, not guesses.**
+**Minecraft structures, rendered like Minecraft.**
 
-No fake textures, no hardcoded block shapes, no bundled game files. Point
-it at your own Minecraft client and get pixel-accurate PNGs and a 3D file
-(USDZ, glTF/GLB, OBJ or STL) out the other end.
+Turn a Java Edition Structure NBT into a polished PNG or a portable 3D model.
+`structura-render` reads the blockstates, models and textures from your own
+Minecraft client, so stairs stay stairs, doors keep their state, glass keeps
+its alpha and every export agrees with the preview.
 
-**This isn't a lookup table of ~50 common blocks with guessed shapes.**
-The resolver walks the same blockstate → multipart/variant → model → element
-rotation → UV pipeline the Minecraft client itself uses, so ordinary vanilla
-blocks — stairs, doors, fences, plants, redstone and the rest — come from the
-game's data rather than per-block guesses. Vanilla's non-model renderers
-(chests, banners, heads, shulker boxes, conduit, bell, decorated pots,
-portals and fluids) share a compact textured compound-model layer. Structure
-entities are preserved too: paintings, populated item frames, armor stands
-with equipment, dropped items, and static neutral-pose models for every
-vanilla entity through 26.2.
-
-<p>
-  <img src="docs/screenshots/usdz-floating-island.png" width="49%" alt="USDZ export of a floating island structure, viewed in a 3D viewer">
-  <img src="docs/screenshots/hero-render-detail.png" width="49%" alt="Close-up hero-render detail: windows, timber framing, flower pots">
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kirimba1024/structura-render/main/docs/screenshots/usdz-floating-island.png" width="49%" alt="Floating island exported to USDZ">
+  <img src="https://raw.githubusercontent.com/kirimba1024/structura-render/main/docs/screenshots/hero-render-detail.png" width="49%" alt="Textured Minecraft structure rendered as a PNG">
 </p>
-
-## Why it's worth using
-
-- **Data-driven where vanilla is.** JSON-modelled blocks use the same
-  blockstate/model data and PNGs as the game. Dynamic blocks use their real
-  entity textures on compact state-aware compound geometry.
-- **One mesh, every output.** Geometry is resolved once and shared between
-  PNG renders and every 3D export (USDZ, glTF, OBJ, STL), so what you
-  preview is exactly what you get in 3D — nothing drifts between formats.
-- **Clean by design.** Zero Mojang assets in this repo or its releases —
-  can't, EULA forbids it. You always supply your own client, so there's no
-  legal grey area to worry about.
-- **Version-flexible.** Point it at a `.jar` from Minecraft 1.13 through
-  the latest release and it just works — verified end to end on both
-  1.21.1 and the newest 26.2. New blocks resolve automatically; no waiting
-  on us to add support.
-- **Light by default.** Core install is just NumPy, Pillow and SciPy.
-  PyVista and the format-specific libraries (USD, trimesh) only get pulled
-  in if you actually ask for hero renders or a given 3D export.
-- **Self-updating classification.** Which blocks are solid cubes (for
-  occlusion) is computed from real model geometry, not a hand-maintained
-  name list — it doesn't go stale as new blocks ship.
-
-## What it does
-
-- **`block_model.py`** — generic blockstate/model resolver: variants,
-  multipart conditions, parent chains, element rotations, UV rotation and
-  UV locking. Builds real geometry for every JSON-modelled vanilla block.
-- **`entities.py` / `entity_models.py` / `item_models.py`** — paintings,
-  frames and static vanilla entity models with per-face UVs. Equipment, framed
-  items and dropped items use the client pack's base item model; incompatible,
-  future or modded entities retain a visible compact fallback.
-- **`textures.py`** — resolves `#variable` texture references and samples
-  the real PNG, including per-pixel alpha for correct occlusion (glass,
-  leaves, iron bars).
-- **`projections.py`** — six-view orthographic PNGs (top/bottom/N/S/E/W)
-  with envelope/aura/terrain-pod/glass-dome mask overlays, for engineering
-  QA rather than looks.
-- **`hero.py`** (`hero` extra) — one real-textured, real-lit PyVista render
-  of the finished structure — the kind of shot above.
-- **`usdz.py`** (`usdz` extra) — a textured USDZ mesh for AR Quick Look,
-  from the same mesh builder as the hero renderer.
-- **`gltf.py`** (`gltf` extra) — a textured `.glb`, for the web
-  (`<model-viewer>`, three.js), Android AR Scene Viewer, Blender and every
-  other glTF-reading tool.
-- **`obj.py`** (`obj` extra) — textured Wavefront OBJ + MTL, for Blender,
-  MeshLab and any classic 3D tool.
-- **`stl.py`** (`stl` extra) — binary STL geometry (no color/texture — the
-  format doesn't have one), for 3D printing or any STL reader.
-- **`build_full_cube_list.py` / `build_opaque_blocks.py`** — data-derived
-  block classification, described above.
-- **`docs/block-render-audit-26.2.md`** — one row for every vanilla
-  blockstate, including explicit dynamic-render limitations.
-- **`legacy_input.py`** (`legacy` extra) — every entry point also accepts
-  legacy `.schematic` and Sponge `.schem` files recognized by
-  [amulet-core](https://github.com/Amulet-Team/Amulet-Core), and converts them
-  to Structure NBT on the fly. No manual conversion step.
 
 ## Quick start
 
+Install only the output you need:
+
 ```bash
-export STRUCTURA_MINECRAFT_ASSETS="$HOME/Library/Application Support/minecraft/versions/1.21.1/1.21.1.jar"
 pip install "structura-render[usdz]"
-structura-render-hero structure.nbt preview.png
-structura-export-usdz structure.nbt model.usdz
 ```
 
-Swap `[usdz]` for `[gltf]`, `[obj]` or `[stl]` (or several, comma-separated)
-for the other 3D formats — `structura-export-gltf`, `structura-export-obj`,
-`structura-export-stl` follow the same `src dst` signature.
-
-Have a legacy `.schematic`/`.schem` instead of Structure NBT?
-Add the `legacy` extra (`[usdz,legacy]`) and pass it straight in — no
-separate conversion step:
+Render a showcase image and export the same geometry:
 
 ```bash
-structura-render-hero house.schematic preview.png
+structura-render-hero house.nbt house.png
+structura-export-usdz house.nbt house.usdz
 ```
 
-Point `STRUCTURA_MINECRAFT_ASSETS` at a client `.jar` (any version from
-1.13 up) or an already-extracted `assets/minecraft` directory. A `.jar` is
-extracted once into `$XDG_CACHE_HOME/structura-render/jar-assets`
-(`~/.cache/...` if unset), keyed by its path, size and mtime, so repeat
-runs and multiple installed versions don't re-extract or collide. When the
-variable is unset, the package searches parent folders and the current
-directory for `assets/minecraft`.
+For Minecraft 1.21.1, the standard launcher installation is detected
+automatically on macOS, Linux and Windows. To use another client or resource
+pack, point the renderer at its `.jar` or extracted `assets/minecraft` folder:
 
-This project's own datapack targets Minecraft Java 1.21.1 specifically
-(`structura_core.version.JAVA_VERSION`); if you're previewing *its*
-structures, match that version for a guaranteed-correct result. Anything
-older than 1.13 uses a different asset layout entirely (pre-"flattening")
-and isn't supported. On load, the package checks for `heavy_core` (added
-in 1.21) and warns on stderr if it's missing, as a cheap signal that the
-pointed-at client predates 1.21 — not exhaustive, just a sanity check.
+```bash
+export STRUCTURA_MINECRAFT_ASSETS="$HOME/.minecraft/versions/1.21.1/1.21.1.jar"
+```
 
-Entity rendering is intentionally static. It does not evaluate animation,
-AI, item predicates, glint, armor trims or arbitrary display transforms.
-The shared mob rigs preserve identity, scale and silhouette for previews; they
-are not a replacement for each mob renderer's animated model hierarchy. Those
-limits affect only entity previews; block geometry continues to come from the
-client model pipeline described above.
+The jar is extracted once into the user cache. Mojang assets are never bundled,
+copied into the package or redistributed.
 
-Use the lighter `hero` extra when no 3D export is needed; plain projection
-rendering (`structura-render-projections`, no extra) skips PyVista and
-every format-specific library entirely.
+## Outputs
+
+| Result | Install | Command |
+|---|---|---|
+| Six-view technical PNG | base package | `structura-render-projections in.nbt out.png` |
+| Perspective PNG | `[hero]` | `structura-render-hero in.nbt out.png` |
+| USDZ / Apple Quick Look | `[usdz]` | `structura-export-usdz in.nbt out.usdz` |
+| GLB or glTF | `[gltf]` | `structura-export-gltf in.nbt out.glb` |
+| Wavefront OBJ | `[obj]` | `structura-export-obj in.nbt out.obj` |
+| Binary STL | `[stl]` | `structura-export-stl in.nbt out.stl` |
+
+Extras can be combined:
+
+```bash
+pip install "structura-render[hero,usdz,gltf,obj,stl]"
+```
+
+Every command accepts `.nbt`. Legacy `.schematic` and Sponge `.schem` inputs
+are available through the `legacy` extra:
+
+```bash
+pip install "structura-render[hero,legacy]"
+structura-render-hero castle.schematic castle.png
+```
+
+Preview conversion preserves the selection's bounds, authored air, block
+materials, connections and all entities. It does not apply datapack placement
+cleanup. Other Amulet input formats, including `.litematic`, are not currently
+verified by this library's conversion tests.
+
+Texture-backed exporters fail clearly when client assets are unavailable,
+instead of silently producing a misleading result. For diagnostics only, the
+3D exporters can retain the old coloured-cube fallback with
+`--allow-flat-fallback`. Hero renders expose the same choice as `--no-textures`.
+
+The five 3D commands support `--help` without optional backends or Minecraft
+assets. PNG and USDZ do not require trimesh.
+
+GLB and USDZ are single-file exports. For `.gltf` or `.obj`, keep the model
+together with its generated resources when moving or sharing it:
+
+- glTF uses a `<filename>.assets/` directory;
+- OBJ uses an adjacent `.mtl` file and a `<filename>.assets/` directory;
+- resource filenames are derived from their contents, so exporting another
+  model into the same directory does not overwrite the first model's assets.
+
+The main glTF/OBJ file is published after its resources are written. Old
+resources are retained when a model is replaced, since another exported model
+may still reference them. Paths inside the export use relative, ASCII-safe
+resource names, including when the model's filename contains spaces or Unicode.
+
+## What makes the output faithful
+
+- **Client-driven models.** Blockstate variants, multipart conditions, parent
+  models, element rotations, UV rotation and UV locking come from the game.
+- **One geometry pipeline.** PNG, USDZ, glTF, OBJ and STL share the same mesh
+  builder, so format-specific implementations do not drift apart.
+- **State-aware special blocks.** Chests, signs, banners, beds, heads, shulker
+  boxes, bells, decorated pots, fluids and portals use compact textured models.
+- **Structure entities.** Paintings, populated item frames, armor stands,
+  dropped items and the vanilla entity catalog through 26.2 remain visible.
+- **Correct transparency.** Per-pixel alpha is preserved for glass, foliage,
+  bars, panes, water and other cutout or translucent surfaces. glTF and USDZ
+  group geometry into opaque, cutout and blended materials. glTF explicitly
+  requests nearest texture filtering; OBJ includes a grayscale opacity map.
+- **No stale cube list.** Occlusion data is derived from client model geometry.
+
+The generic resolver follows the client data rather than a short table of
+guessed blocks. New JSON-modelled blocks therefore work without adding another
+hardcoded shape to the renderer.
+
+## Choosing Minecraft assets
+
+`STRUCTURA_MINECRAFT_ASSETS` accepts either:
+
+- a Minecraft client `.jar`;
+- an extracted `assets/minecraft` directory.
+
+When the variable is unset, the renderer first looks for `assets/minecraft` in
+the working tree and then for a launcher-installed 1.21.1 client. Cached jar
+content is keyed by the jar path, size and modification time, so different
+versions do not collide.
+
+Minecraft 1.13 and newer use the supported asset layout. The renderer is
+verified end to end with 1.21.1 and 26.2. This repository's own datapack targets
+Java 1.21.1, so use that client when exact project parity matters.
+
+## Honest limits
+
+Entity rendering is static. The renderer does not evaluate animation, AI,
+item predicates, enchantment glint, armor trims or arbitrary display
+transforms. Entity previews preserve identity and silhouette; they are not a
+replacement for Minecraft's animated renderer. Block geometry still follows
+the client model pipeline described above.
+
+The base install contains `structura-core`, NumPy and Pillow. PyVista, OpenUSD
+and trimesh are installed only by the output extras that need them.
+
+STL contains geometry only. Its exporter welds vertices and removes duplicate
+triangles; an isolated solid cube produces a closed, outward-facing surface.
+Plants, intersecting shapes and open planes may still require repair or
+thickening before 3D printing. STL does not retain textures or transparency.
+
+For implementation coverage and explicit dynamic-render limitations, see
+[`docs/block-render-audit-26.2.md`](https://github.com/kirimba1024/structura-render/blob/main/docs/block-render-audit-26.2.md).

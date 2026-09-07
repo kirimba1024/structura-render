@@ -5,13 +5,8 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-import pyvista as pv
 
-from structura_core import Structure
-
-from .legacy_input import as_structure_nbt
-from .mesh import build_textured_meshes, flat_rgba, voxel_state
-from .textures import TextureBank
+from .camera import framing_distance
 
 
 def main():
@@ -29,6 +24,12 @@ def main():
         help="return successfully without a PNG when no plotting backend is available",
     )
     args = parser.parse_args()
+    import pyvista as pv
+
+    from .legacy_input import load_structure
+    from .mesh import build_textured_meshes, flat_rgba, voxel_state
+    from .textures import texture_bank_or_exit
+
     if args.window <= 0 or args.zoom <= 0:
         parser.error("--window and --zoom must be positive")
     if not pv.system_supports_plotting():
@@ -38,13 +39,13 @@ def main():
             return
         raise SystemExit(message)
 
-    src = Structure(as_structure_nbt(args.src))
+    src = load_structure(args.src)
     sx, sy, sz = src.size
     state, solid, index_names, index_props = voxel_state(src)
 
     textured_meshes, flat_entities, textured_indices = [], [], set()
-    bank = TextureBank()
-    if not args.no_textures and bank.available():
+    if not args.no_textures:
+        bank = texture_bank_or_exit()
         textured_meshes, flat_entities, textured_indices, _ = build_textured_meshes(
             src, solid, state, index_names, index_props, bank,
         )
@@ -78,8 +79,9 @@ def main():
         mesh.cell_data["color"] = np.tile((*color, alpha), (mesh.n_cells, 1)).astype(np.uint8)
         plotter.add_mesh(mesh, scalars="color", rgba=True, show_edges=False)
 
-    center = np.array([sx, sy, sz]) / 2
-    radius = float(np.linalg.norm([sx, sy, sz])) * 1.1
+    bounds = np.asarray(plotter.bounds).reshape(3, 2)
+    center = bounds.mean(axis=1)
+    radius = framing_distance(bounds[:, 1] - bounds[:, 0], plotter.camera.view_angle)
     azimuth, elevation = np.radians((args.azimuth, args.elevation))
     offset = radius * np.array([
         np.cos(elevation) * np.sin(azimuth),
@@ -90,6 +92,7 @@ def main():
     plotter.camera.focal_point = tuple(center)
     plotter.camera.position = tuple(center + offset)
     plotter.camera.zoom(args.zoom)
+    plotter.reset_camera_clipping_range()
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     plotter.screenshot(str(output))

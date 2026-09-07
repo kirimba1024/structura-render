@@ -4,12 +4,11 @@ import hashlib
 
 import numpy as np
 import pyvista as pv
-import trimesh
 from PIL import Image
 
 from structura_core import AIR_NAMES
 
-from .block_model import AXIS_VEC, block_elements, post_texture
+from .block_model import AXIS_VEC, FACE_CORNERS, block_elements, post_texture
 from .entities import structure_parts
 from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
@@ -23,11 +22,7 @@ CUBE_CORNERS = np.array([
     [0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1],
 ], dtype=np.float32)
 
-CUBE_FACES = {
-    "up": [4, 5, 6, 7], "down": [0, 1, 2, 3],
-    "north": [1, 0, 4, 5], "south": [3, 2, 6, 7],
-    "east": [2, 1, 5, 6], "west": [0, 3, 7, 4],
-}
+CUBE_FACES = {direction: list(corners) for direction, corners in FACE_CORNERS.items()}
 FACE_STEP = AXIS_VEC
 UV_CORNERS = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=np.float32)
 
@@ -182,6 +177,29 @@ def face_texture_key(direction, faces):
 def uv_for_rect(rect):
     u0, u1, v0, v1 = rect
     return np.array([[u0, v0], [u1, v0], [u1, v1], [u0, v1]], dtype=np.float32)
+
+
+def face_uv(uv, direction):
+    """Keep the texture attached to its vertices after fixing top-face winding."""
+    return uv[[0, 3, 2, 1]] if direction == "up" else uv
+
+
+ALPHA_MODES = ("OPAQUE", "MASK", "BLEND")
+
+
+def alpha_mode(image):
+    alpha = np.asarray(image)[..., 3]
+    if np.any((alpha > 0) & (alpha < 255)):
+        return "BLEND"
+    return "MASK" if np.any(alpha == 0) else "OPAQUE"
+
+
+def uv_pixel_bounds(image, uv):
+    height, width = image.shape[:2]
+    pixels = np.asarray(uv) * (width, -height) + (0, height)
+    lo = np.clip(np.floor(pixels.min(axis=0) + 1e-4).astype(int), 0, (width - 1, height - 1))
+    hi = np.clip(np.ceil(pixels.max(axis=0) - 1e-4).astype(int), lo + 1, (width, height))
+    return int(lo[0]), int(lo[1]), int(hi[0]), int(hi[1])
 
 
 def uv_points_for_rect(rect, points):
@@ -406,6 +424,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
             else:
                 if shape is None:
                     specials[index] = []
+                    special_masks[index] = state == index
                 continue
         if elements is None:
             if shape is not None:
@@ -425,6 +444,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                     "rect_index": rect_index,
                     "uv": face["uv"],
                     "uv_rotation": face["uv_rotation"],
+                    "uv_order": face.get("uv_order", (0, 1, 2, 3)),
                     "vertices": face["vertices"],
                     "cullface": face["cullface"],
                 }
@@ -473,17 +493,26 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
         texture.mipmap = False
 
     points_all, faces_all, uv_all = [], [], []
+    material_modes, mode_cache = [], {}
+    vertex_count = 0
 
     def append(positions, offsets, uv):
+        nonlocal vertex_count
         points, faces, tcoords = quads_from_positions(positions, offsets, uv)
         if points is None:
             return
-        base = sum(len(p) for p in points_all)
+        base = vertex_count
+        vertex_count += len(points)
         faces = faces.reshape(-1, 5)
         faces[:, 1:] += base
         points_all.append(points)
         faces_all.append(faces.ravel())
         uv_all.append(tcoords)
+        bounds = uv_pixel_bounds(atlas_image, uv)
+        if bounds not in mode_cache:
+            x0, y0, x1, y1 = bounds
+            mode_cache[bounds] = ALPHA_MODES.index(alpha_mode(atlas_image[y0:y1, x0:x1]))
+        material_modes.append(np.full(len(points) // 4, mode_cache[bounds], dtype=np.uint8))
 
     for index, elements in generic.items():
         own = state == index
@@ -495,6 +524,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 pos = np.argwhere(mask).astype(np.float32)
                 uv = atlas_uv(rects[face["rect_index"]], face["uv"])
                 uv = np.roll(uv, face["uv_rotation"], axis=0)
+                uv = uv[list(face["uv_order"])]
                 append(pos, np.asarray(face["vertices"], dtype=np.float32), uv)
 
     water_mask = np.zeros_like(solid)
@@ -530,7 +560,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                     rect_index = part["rect_by_face"][direction]
                 else:
                     rect_index = part["rect_index"]
-                append(np.argwhere(mask).astype(np.float32), corners[indices], uv_for_rect(rects[rect_index]))
+                append(np.argwhere(mask).astype(np.float32), corners[indices], face_uv(uv_for_rect(rects[rect_index]), direction))
 
     for index, face_ids in resolved.items():
         name = index_names[index]
@@ -562,7 +592,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
             for direction in ("up", "down"):
                 mask = exposed_mask(own, connectable, direction)
                 pos = np.argwhere(mask).astype(np.float32)
-                append(pos, post_corners[CUBE_FACES[direction]], cropped_uv(rect, direction, post_lo, post_hi))
+                append(pos, post_corners[CUBE_FACES[direction]], face_uv(cropped_uv(rect, direction, post_lo, post_hi), direction))
             for direction in ARM_AXIS:
                 pos = np.argwhere(own & ~connects[direction]).astype(np.float32)
                 append(pos, post_corners[CUBE_FACES[direction]], cropped_uv(rect, direction, post_lo, post_hi))
@@ -573,7 +603,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                         lo, hi = arm_bounds(direction, y_range, FENCE_BAR_THICKNESS)
                         corners = box_corners(lo, hi)
                         for face in ("up", "down", *ARM_SIDE_FACES[direction]):
-                            append(pos, corners[CUBE_FACES[face]], cropped_uv(rect, face, lo, hi))
+                            append(pos, corners[CUBE_FACES[face]], face_uv(cropped_uv(rect, face, lo, hi), face))
             elif is_pane(name):
                 for direction, mask in connects.items():
                     pos = np.argwhere(mask).astype(np.float32)
@@ -592,7 +622,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                         lo, hi = arm_bounds(direction, (0.0, y_top), WALL_THICKNESS)
                         corners = box_corners(lo, hi)
                         for face in ("up", "down", *ARM_SIDE_FACES[direction]):
-                            append(pos, corners[CUBE_FACES[face]], cropped_uv(rect, face, lo, hi))
+                            append(pos, corners[CUBE_FACES[face]], face_uv(cropped_uv(rect, face, lo, hi), face))
         elif is_bars(name):
             key = next(iter(face_ids))
             uv = uv_for_rect(rects[face_ids[key]])
@@ -625,7 +655,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 pos = np.argwhere(mask).astype(np.float32)
                 key = face_texture_key(direction, face_ids)
                 rect = rects[face_ids.get(key, face_ids.get("all"))]
-                append(pos, CUBE_CORNERS[CUBE_FACES[direction]], uv_for_rect(rect))
+                append(pos, CUBE_CORNERS[CUBE_FACES[direction]], face_uv(uv_for_rect(rect), direction))
 
     for anchor, part in entity_geometry:
         origin = np.array([anchor], dtype=np.float32)
@@ -651,7 +681,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
                 rect_index = part["rect_by_face"][direction]
             else:
                 rect_index = part["rect_index"]
-            append(origin, corners[CUBE_FACES[direction]], uv_for_rect(rects[rect_index]))
+            append(origin, corners[CUBE_FACES[direction]], face_uv(uv_for_rect(rects[rect_index]), direction))
 
     flat_entities = []
     special_indices = {key[0] if isinstance(key, tuple) else key for key in specials}
@@ -661,6 +691,7 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
 
     mesh = pv.PolyData(np.vstack(points_all), np.concatenate(faces_all).astype(np.int64))
     mesh.active_texture_coordinates = np.vstack(uv_all)
+    mesh.cell_data["alpha_mode"] = np.concatenate(material_modes)
     if texture is None:
         raise RuntimeError("textured geometry was built without an atlas")
     return [(mesh, texture)], flat_entities, textured_indices, occluder
@@ -745,32 +776,40 @@ def double_sided_triangles(tris):
 
 
 def double_sided_trimesh(points, tris, visual=None):
+    import trimesh
+
     return trimesh.Trimesh(
         vertices=points, faces=double_sided_triangles(tris), visual=visual, process=False,
     )
 
 
-def export_parts(meshes, flat_groups, center):
-    parts = []
-    if meshes:
-        mesh_obj, texture = meshes[0]
-        points = mesh_obj.points.astype(np.float32) - center
-        uv = np.asarray(mesh_obj.active_texture_coordinates, dtype=np.float32)
-        tris = triangulate_quads(vtk_quads(mesh_obj.faces))
-        image = upscale_atlas(Image.fromarray(texture.to_array()))
-        material = trimesh.visual.material.PBRMaterial(
-            baseColorTexture=image, metallicFactor=0.0, roughnessFactor=1.0,
-            alphaMode="MASK", alphaCutoff=0.5,
+def material_groups(mesh, texture):
+    """Yield compact quad buffers for each alpha mode, retaining vertex UVs."""
+    quads = vtk_quads(mesh.faces)
+    modes = mesh.cell_data.get("alpha_mode")
+    if modes is None:
+        modes = np.full(len(quads), ALPHA_MODES.index(alpha_mode(texture.to_array())))
+    for mode in np.unique(modes):
+        selected = quads[modes == mode]
+        used, indices = np.unique(selected.ravel(), return_inverse=True)
+        yield (
+            ALPHA_MODES[int(mode)], mesh.points[used], indices.reshape(-1, 4),
+            np.asarray(mesh.active_texture_coordinates)[used],
         )
-        visual = trimesh.visual.TextureVisuals(uv=uv, material=material)
-        parts.append(("Blocks", double_sided_trimesh(points, tris, visual)))
 
-    for index, (color, points, faces) in enumerate(flat_groups):
-        pts = np.asarray(points, dtype=np.float32) - center
-        tris = triangulate_quads(faces)
-        part = double_sided_trimesh(pts, tris)
-        part.visual = trimesh.visual.ColorVisuals(
-            part, face_colors=np.tile(color, (len(part.faces), 1)),
-        )
-        parts.append((f"Flat{index}", part))
-    return parts
+
+def export_parts(meshes, flat_groups, center):
+    """Compatibility entry point; trimesh is loaded only for its exporters."""
+    from .mesh_export import export_parts as export
+
+    return export(meshes, flat_groups, center)
+
+
+def structure_export_parts(src, bank):
+    state, solid, index_names, index_props = voxel_state(src)
+    meshes, _, textured_indices, occluder = build_textured_meshes(
+        src, solid, state, index_names, index_props, bank,
+    )
+    flat_groups = flat_block_groups(state, index_names, textured_indices, occluder)
+    center = np.asarray(src.size, dtype=np.float32) / 2.0
+    return export_parts(meshes, flat_groups, center)

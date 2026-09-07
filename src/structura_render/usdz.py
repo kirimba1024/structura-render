@@ -3,36 +3,16 @@
 Quick Look (press space on the file in Finder) -- reuses render_hero.py's
 own textured-mesh builder so the same blocks/shapes are covered."""
 import argparse
+import os
 import tempfile
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, UsdUtils
 
-from structura_core import Structure
+from .camera import framing_distance
 
-from .legacy_input import as_structure_nbt
-from .mesh import build_textured_meshes, flat_rgba, mask_surface, upscale_atlas, voxel_state
-from .textures import TextureBank
-
-GROUND_LEVEL_COLOR = (1.0, 0.35, 0.65)
-GROUND_LEVEL_OPACITY = 0.07
-GROUND_LEVEL_LIFT = 0.04
-GROUND_LEVEL_MARGIN = 6.0
-
-
-def ground_level_mesh(size_x, size_z, ground_y):
-    y = float(ground_y) + 1.0 - GROUND_LEVEL_LIFT
-    x0, z0 = -GROUND_LEVEL_MARGIN, -GROUND_LEVEL_MARGIN
-    x1, z1 = float(size_x) + GROUND_LEVEL_MARGIN, float(size_z) + GROUND_LEVEL_MARGIN
-    points = [(x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)]
-    return points, [[0, 1, 2, 3]]
-
-# Same 35/35 degree three-quarter angle and radius*1.1 fit hero.py's own
-# PyVista camera uses (proven to look right across every hero render so
-# far) -- reused here so a USDZ viewer's initial framing matches instead
-# of defaulting to sitting at the origin with no back-off distance.
+# Match the image renderer's default orientation, fitting the camera's aperture.
 CAMERA_AZIMUTH = 35.0
 CAMERA_ELEVATION = 35.0
 CAMERA_FOCAL_LENGTH = 45.0
@@ -41,7 +21,10 @@ CAMERA_VERTICAL_APERTURE = 24.0
 
 
 def add_framing_camera(stage, root, size):
-    radius = float(np.linalg.norm(np.asarray(size, dtype=np.float64))) * 1.1
+    from pxr import Gf, UsdGeom
+
+    vertical_fov = np.degrees(2 * np.arctan(CAMERA_VERTICAL_APERTURE / (2 * CAMERA_FOCAL_LENGTH)))
+    radius = framing_distance(size, vertical_fov, CAMERA_HORIZONTAL_APERTURE / CAMERA_VERTICAL_APERTURE)
     azimuth, elevation = np.radians((CAMERA_AZIMUTH, CAMERA_ELEVATION))
     direction = np.array([
         np.cos(elevation) * np.sin(azimuth),
@@ -60,6 +43,8 @@ def add_framing_camera(stage, root, size):
 
 
 def build_flat_material(stage, root, name, color, opacity):
+    from pxr import Gf, Sdf, UsdShade
+
     material = UsdShade.Material.Define(stage, root.AppendPath(name))
     shader = UsdShade.Shader.Define(stage, material.GetPath().AppendPath("PBRShader"))
     shader.CreateIdAttr("UsdPreviewSurface")
@@ -72,6 +57,8 @@ def build_flat_material(stage, root, name, color, opacity):
 
 
 def add_flat_mesh(stage, root, name, points, faces, material, center):
+    from pxr import Gf, UsdGeom, UsdShade
+
     if not points:
         return
     mesh = UsdGeom.Mesh.Define(stage, root.AppendPath(name))
@@ -84,8 +71,6 @@ def add_flat_mesh(stage, root, name, points, faces, material, center):
     for quad in faces:
         counts.append(4)
         indices.extend(quad)
-        counts.append(4)
-        indices.extend(quad[::-1])
     mesh.CreateFaceVertexCountsAttr(counts)
     mesh.CreateFaceVertexIndicesAttr(indices)
     mesh.CreateSubdivisionSchemeAttr("none")
@@ -93,7 +78,11 @@ def add_flat_mesh(stage, root, name, points, faces, material, center):
     UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
 
 
-def build_material(stage, root, texture_path, name="AtlasMaterial"):
+def build_material(stage, root, texture_path, name="AtlasMaterial", *, alpha_mode="MASK"):
+    from pxr import Gf, Sdf, UsdShade
+
+    if alpha_mode not in {"OPAQUE", "MASK", "BLEND"}:
+        raise ValueError(f"unknown alpha mode: {alpha_mode}")
     material = UsdShade.Material.Define(stage, root.AppendPath(name))
     shader = UsdShade.Shader.Define(stage, material.GetPath().AppendPath("PBRShader"))
     shader.CreateIdAttr("UsdPreviewSurface")
@@ -126,8 +115,13 @@ def build_material(stage, root, texture_path, name="AtlasMaterial"):
         texture.ConnectableAPI(), "rgb",
     )
     opacity = shader.CreateInput("opacity", Sdf.ValueTypeNames.Float)
-    opacity.ConnectToSource(texture.ConnectableAPI(), "a")
-    shader.CreateInput("opacityThreshold", Sdf.ValueTypeNames.Float).Set(0.5)
+    if alpha_mode == "OPAQUE":
+        opacity.Set(1.0)
+    else:
+        opacity.ConnectToSource(texture.ConnectableAPI(), "a")
+    shader.CreateInput("opacityThreshold", Sdf.ValueTypeNames.Float).Set(
+        0.5 if alpha_mode == "MASK" else 0.0,
+    )
     return material
 
 
@@ -159,10 +153,18 @@ def unique_sided_quads(points, quads):
 
 
 def add_mesh(stage, root, name, points, faces, uv, material, center):
+    from pxr import Gf, Sdf, UsdGeom, UsdShade
+
     mesh = UsdGeom.Mesh.Define(stage, root.AppendPath(name))
     points = np.asarray(points, dtype=np.float64)
     quads = [tuple(int(v) for v in faces[i + 1:i + 5]) for i in range(0, len(faces), 5)]
-    quads = unique_sided_quads(points, quads)
+    # A geometric coincidence is not enough: overlays may use another texture.
+    # Double-sided materials handle reverse visibility without reverse copies.
+    distinct = {}
+    for quad in quads:
+        key = frozenset((tuple(points[i]), tuple(uv[i])) for i in quad)
+        distinct.setdefault(key, quad)
+    quads = list(distinct.values())
 
     counts = []
     indices = []
@@ -181,7 +183,7 @@ def add_mesh(stage, root, name, points, faces, uv, material, center):
     mesh.CreateNormalsAttr(normals)
     mesh.SetNormalsInterpolation(UsdGeom.Tokens.uniform)
     mesh.CreateSubdivisionSchemeAttr("none")
-    mesh.CreateDoubleSidedAttr(False)
+    mesh.CreateDoubleSidedAttr(True)
     primvars = UsdGeom.PrimvarsAPI(mesh)
     st = primvars.CreatePrimvar(
         "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex,
@@ -191,24 +193,42 @@ def add_mesh(stage, root, name, points, faces, uv, material, center):
     return mesh
 
 
+def package_usdz(source, output):
+    """Publish a completed archive without damaging an existing destination."""
+    from pxr import Sdf, UsdUtils
+
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output.parent, prefix=".structura-usdz-") as directory:
+        prepared = Path(directory) / "model.usdz"
+        if not UsdUtils.CreateNewUsdzPackage(Sdf.AssetPath(str(source)), str(prepared)):
+            raise RuntimeError("USDZ packaging failed")
+        os.replace(prepared, output)
+    return output
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("src")
     parser.add_argument("output")
     parser.add_argument(
-        "--ground-y", type=float,
-        help="Y of the topmost ground block (the structure's own "
-             "coordinates, matching the base_y saved by envelope.py/"
-             "terrain_pod.py) -- draws a faint translucent plane at its "
-             "top face, where a player's feet would stand, for visually "
-             "confirming detect_base_y instead of guessing from a render",
+        "--allow-flat-fallback", action="store_true",
+        help="use coloured cubes when Minecraft assets are unavailable",
     )
     args = parser.parse_args()
+    from pxr import Sdf, Usd, UsdGeom
 
-    src = Structure(as_structure_nbt(args.src))
+    from .legacy_input import load_structure
+    from .mesh import (
+        build_textured_meshes, flat_rgba, mask_surface, material_groups,
+        upscale_atlas, voxel_state,
+    )
+    from .textures import texture_bank_or_exit
+
+    src = load_structure(args.src)
     state, solid, index_names, index_props = voxel_state(src)
 
-    bank = TextureBank()
+    bank = texture_bank_or_exit(args.allow_flat_fallback)
     meshes, flat_entities, textured_indices, occluder = build_textured_meshes(
         src, solid, state, index_names, index_props, bank,
     )
@@ -227,17 +247,17 @@ def main():
         center = np.asarray(src.size, dtype=np.float32) / 2.0
         add_framing_camera(stage, root, src.size)
 
-        if meshes:
-            mesh_obj, texture = meshes[0]
-            texture_path = tmp / "atlas.png"
+        for mesh_index, (mesh_obj, texture) in enumerate(meshes):
+            texture_path = tmp / f"atlas{mesh_index}.png"
             atlas_image = upscale_atlas(Image.fromarray(texture.to_array()))
             atlas_image.save(texture_path)
-            material = build_material(stage, root, "atlas.png")
-            add_mesh(
-                stage, root, "Blocks",
-                mesh_obj.points, mesh_obj.faces,
-                mesh_obj.active_texture_coordinates, material, center,
-            )
+            for mode, points, quads, uv in material_groups(mesh_obj, texture):
+                name = f"Blocks{mesh_index}_{mode}"
+                material = build_material(
+                    stage, root, texture_path.name, name=f"{name}Material", alpha_mode=mode,
+                )
+                faces = np.column_stack((np.full(len(quads), 4), quads)).ravel()
+                add_mesh(stage, root, name, points, faces, uv, material, center)
 
         for i, (points, faces, color, alpha) in enumerate(flat_entities):
             quads = [tuple(int(v) for v in faces[j + 1:j + 5]) for j in range(0, len(faces), 5)]
@@ -268,20 +288,13 @@ def main():
             )
             add_flat_mesh(stage, root, f"Flat{index}", points, faces, flat_material, center)
 
-        if args.ground_y is not None:
-            points, faces = ground_level_mesh(src.size[0], src.size[2], args.ground_y)
-            ground_material = build_flat_material(
-                stage, root, "GroundLevelMaterial", GROUND_LEVEL_COLOR, GROUND_LEVEL_OPACITY,
-            )
-            add_flat_mesh(stage, root, "GroundLevel", points, faces, ground_material, center)
-
         stage.GetRootLayer().Save()
 
         out_path = Path(args.output).resolve()
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        ok = UsdUtils.CreateNewUsdzPackage(Sdf.AssetPath(str(usda_path)), str(out_path))
-        if not ok:
-            raise SystemExit("USDZ packaging failed")
+        try:
+            package_usdz(usda_path, out_path)
+        except RuntimeError as error:
+            raise SystemExit(str(error)) from error
 
     total_points = (
         sum(len(m.points) for m, _ in meshes)

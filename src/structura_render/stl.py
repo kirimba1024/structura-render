@@ -1,39 +1,46 @@
 import argparse
 from pathlib import Path
 
-import numpy as np
-import trimesh
+from .export_io import atomic_write
 
-from structura_core import Structure
 
-from .legacy_input import as_structure_nbt
-from .mesh import build_textured_meshes, export_parts, flat_block_groups, voxel_state
-from .textures import TextureBank
+def export_stl(parts, output):
+    """Export a single oriented surface; no artificial back-face duplication."""
+    import trimesh
+
+    if not parts:
+        raise ValueError("structure produced no visible geometry")
+    combined = trimesh.util.concatenate([part for _, part in parts])
+    # Welding removes per-face UV seams, which STL cannot represent. Coincident
+    # triangles (including reverse sides of sprites) are one geometric surface.
+    combined.visual = trimesh.visual.ColorVisuals()
+    combined.merge_vertices()
+    combined.update_faces(combined.unique_faces())
+    atomic_write(output, combined.export(file_type="stl"))
+    return combined
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("src")
     parser.add_argument("output")
-    args = parser.parse_args()
-
-    src = Structure(as_structure_nbt(args.src))
-    state, solid, index_names, index_props = voxel_state(src)
-
-    bank = TextureBank()
-    meshes, _, textured_indices, occluder = build_textured_meshes(
-        src, solid, state, index_names, index_props, bank,
+    parser.add_argument(
+        "--allow-flat-fallback", action="store_true",
+        help="use coloured cubes when Minecraft assets are unavailable",
     )
-    flat_groups = flat_block_groups(state, index_names, textured_indices, occluder)
-    center = np.asarray(src.size, dtype=np.float32) / 2.0
-    parts = export_parts(meshes, flat_groups, center)
+    args = parser.parse_args()
+    from .legacy_input import load_structure
+    from .mesh import structure_export_parts
+    from .textures import texture_bank_or_exit
+
+    src = load_structure(args.src)
+    parts = structure_export_parts(src, texture_bank_or_exit(args.allow_flat_fallback))
     if not parts:
         raise SystemExit("structure produced no visible geometry")
 
-    combined = trimesh.util.concatenate([part for _, part in parts])
     out_path = Path(args.output).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    combined.export(str(out_path))
+    combined = export_stl(parts, out_path)
     print(f"{out_path} triangles={len(combined.faces)}")
 
 

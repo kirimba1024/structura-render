@@ -2,14 +2,7 @@ import argparse
 import re
 from pathlib import Path
 
-import numpy as np
-import trimesh
-
-from structura_core import Structure
-
-from .legacy_input import as_structure_nbt
-from .mesh import build_textured_meshes, export_parts, flat_block_groups, voxel_state
-from .textures import TextureBank
+from .export_io import write_obj
 
 
 def add_alpha_maps(obj_path):
@@ -29,18 +22,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("src")
     parser.add_argument("output")
-    args = parser.parse_args()
-
-    src = Structure(as_structure_nbt(args.src))
-    state, solid, index_names, index_props = voxel_state(src)
-
-    bank = TextureBank()
-    meshes, _, textured_indices, occluder = build_textured_meshes(
-        src, solid, state, index_names, index_props, bank,
+    parser.add_argument(
+        "--allow-flat-fallback", action="store_true",
+        help="use coloured cubes when Minecraft assets are unavailable",
     )
-    flat_groups = flat_block_groups(state, index_names, textured_indices, occluder)
-    center = np.asarray(src.size, dtype=np.float32) / 2.0
-    parts = export_parts(meshes, flat_groups, center)
+    args = parser.parse_args()
+    import trimesh
+
+    from .legacy_input import load_structure
+    from .mesh import structure_export_parts
+    from .textures import texture_bank_or_exit
+
+    src = load_structure(args.src)
+    parts = structure_export_parts(src, texture_bank_or_exit(args.allow_flat_fallback))
     if not parts:
         raise SystemExit("structure produced no visible geometry")
 
@@ -50,9 +44,7 @@ def main():
 
     out_path = Path(args.output).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    resolver = trimesh.resolvers.FilePathResolver(str(out_path.parent))
-    scene.export(str(out_path), resolver=resolver, write_texture=True)
-    add_alpha_maps(out_path)
+    write_obj(scene, out_path)
     print(f"{out_path} parts={len(parts)}")
 
 

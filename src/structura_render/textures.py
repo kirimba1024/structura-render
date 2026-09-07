@@ -8,6 +8,11 @@ from .assets import ASSETS
 
 BLOCK_TEXTURES = ASSETS / "textures/block"
 TEXTURES = ASSETS / "textures"
+ASSET_DIRECTORIES = (ASSETS / "blockstates", ASSETS / "models/block", BLOCK_TEXTURES)
+MISSING_ASSETS_MESSAGE = (
+    "Minecraft assets were not found; set STRUCTURA_MINECRAFT_ASSETS to a "
+    "client jar or extracted assets/minecraft directory"
+)
 
 GRASS_TINT = (145, 189, 89)
 FOLIAGE_TINT = (95, 158, 62)
@@ -24,6 +29,8 @@ STRIP_SUFFIXES = (
 
 
 def _tint(image, color):
+    if image is None:
+        return None
     array = np.asarray(image).astype(np.float32)
     factor = np.array([*color, 255], dtype=np.float32) / 255.0
     return Image.fromarray(np.clip(array * factor, 0, 255).astype(np.uint8))
@@ -84,7 +91,7 @@ class TextureBank:
         self._asset_cache = {}
 
     def available(self):
-        return BLOCK_TEXTURES.is_dir()
+        return all(path.is_dir() for path in ASSET_DIRECTORIES)
 
     def read_texture(self, stem, tint=None):
         image = self._read(stem)
@@ -120,7 +127,8 @@ class TextureBank:
     def _open(path):
         if not path.exists():
             return None
-        image = Image.open(path).convert("RGBA")
+        with Image.open(path) as source:
+            image = source.convert("RGBA")
         if image.height > image.width and "entity" not in path.parts:
             image = image.crop((0, 0, image.width, image.width))
         return image
@@ -147,23 +155,26 @@ class TextureBank:
         base = base.replace("wall_torch", "torch")
         base = "water" if base == "bubble_column" else base
         if base == "grass_block":
-            return {
+            faces = {
                 "top": _tint(self._read("grass_block_top"), GRASS_TINT),
                 "side": self._read("grass_block_side"),
                 "bottom": self._read("dirt"),
             }
+            return faces if all(faces.values()) else None
         if base == "dirt_path":
-            return {
+            faces = {
                 "top": self._read("dirt_path_top"),
                 "side": self._read("dirt_path_side"),
                 "bottom": self._read("dirt"),
             }
+            return faces if all(faces.values()) else None
         if base == "farmland":
-            return {
+            faces = {
                 "top": self._read("farmland"),
                 "side": self._read("dirt"),
                 "bottom": self._read("dirt"),
             }
+            return faces if all(faces.values()) else None
         if base.endswith("_leaves") and "azalea" not in base:
             image = self._read(base)
             return {"all": _tint(image, tint_for(block_name))} if image else None
@@ -204,3 +215,10 @@ class TextureBank:
             if image:
                 return {"all": image}
         return None
+
+
+def texture_bank_or_exit(allow_flat_fallback=False):
+    bank = TextureBank()
+    if not bank.available() and not allow_flat_fallback:
+        raise SystemExit(MISSING_ASSETS_MESSAGE)
+    return bank

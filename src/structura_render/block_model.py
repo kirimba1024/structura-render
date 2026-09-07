@@ -17,7 +17,7 @@ AXIS_VEC = {
 VEC_AXIS = {v: k for k, v in AXIS_VEC.items()}
 
 FACE_CORNERS = {
-    "up": (4, 5, 6, 7), "down": (0, 1, 2, 3),
+    "up": (4, 7, 6, 5), "down": (0, 1, 2, 3),
     "north": (1, 0, 4, 5), "south": (3, 2, 6, 7),
     "east": (2, 1, 5, 6), "west": (0, 3, 7, 4),
 }
@@ -206,6 +206,8 @@ def block_elements(name, props):
     result = []
     for entry in entries:
         model = resolve_model(entry["model"])
+        if model["elements"] is None:
+            return None
         if not model["elements"]:
             continue
         x_deg, y_deg = entry.get("x", 0), entry.get("y", 0)
@@ -219,7 +221,7 @@ def block_elements(name, props):
             for direction, face in element.get("faces", {}).items():
                 texture = resolve_texture(face.get("texture"), model["textures"])
                 if texture is None:
-                    continue
+                    return None
                 uv = face.get("uv", default_uv(direction, lo, hi))
                 world_direction = rotate_direction(direction, x_deg, y_deg)
                 cullface = face.get("cullface")
@@ -231,6 +233,7 @@ def block_elements(name, props):
                         face.get("rotation", 0) // 90
                         + (uvlock_quarters(direction, x_deg, y_deg) if entry.get("uvlock") else 0)
                     ) % 4,
+                    "uv_order": (0, 3, 2, 1) if direction == "up" else (0, 1, 2, 3),
                     "vertices": tuple(
                         tuple(value / 16 for value in corners[i])
                         for i in FACE_CORNERS[direction]

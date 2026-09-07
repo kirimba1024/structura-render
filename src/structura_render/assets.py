@@ -58,6 +58,23 @@ def _warn_if_version_mismatch(assets_root: Path) -> None:
         )
 
 
+def _installed_client_jar():
+    """Find the project's Minecraft client without caller-side setup."""
+    version = "1.21.1"
+    roots = [
+        Path.home() / "Library/Application Support/minecraft/versions",
+        Path.home() / ".minecraft/versions",
+    ]
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        roots.append(Path(appdata) / ".minecraft/versions")
+    for root in roots:
+        jar = root / version / f"{version}.jar"
+        if jar.is_file():
+            return jar
+    return None
+
+
 def minecraft_assets_root() -> Path:
     configured = os.environ.get("STRUCTURA_MINECRAFT_ASSETS")
     if configured:
@@ -80,6 +97,11 @@ def minecraft_assets_root() -> Path:
         if path.is_dir():
             _warn_if_version_mismatch(path)
             return path
+    client_jar = _installed_client_jar()
+    if client_jar is not None:
+        extracted = _extract_jar_assets(client_jar)
+        _warn_if_version_mismatch(extracted)
+        return extracted
     return Path.cwd() / "assets" / "minecraft"
 
 

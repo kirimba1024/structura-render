@@ -102,7 +102,7 @@ def test_imports_do_not_resolve_assets_or_extract_jars(tmp_path):
     subprocess.run([sys.executable, '-c', code], env=env, check=True, capture_output=True)
 
 
-@pytest.mark.parametrize('identifier', ['../secret', 'minecraft:../secret', 'a//b', '/absolute', 'minecraft:foo/../bar'])
+@pytest.mark.parametrize('identifier', ['../secret', 'minecraft:../secret', 'a//b', '/absolute', 'minecraft:foo/../bar', '..:secret', '.:secret'])
 def test_resource_paths_cannot_traverse_outside_pack(tmp_path, identifier):
     with pytest.raises(ValueError):
         AssetContext(tmp_path).path('models', identifier, '.json')

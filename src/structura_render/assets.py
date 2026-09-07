@@ -145,7 +145,7 @@ class AssetContext:
         if not _RESOURCE.fullmatch(identifier):
             raise ValueError(f"invalid resource identifier: {identifier!r}")
         namespace, name = identifier.split(":", 1) if ":" in identifier else ("minecraft", identifier)
-        if any(part in {"", ".", ".."} for part in name.split("/")):
+        if namespace in {".", ".."} or any(part in {"", ".", ".."} for part in name.split("/")):
             raise ValueError(f"invalid resource path: {identifier!r}")
         root = self.root if namespace == "minecraft" else self.root.parent / namespace
         return root / directory / f"{name}{suffix}"

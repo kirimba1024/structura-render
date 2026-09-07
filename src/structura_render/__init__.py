@@ -1,7 +1,7 @@
 """Minecraft Structure NBT renderers and reusable mesh construction."""
 
 __all__ = ["ProjectionOverlays", "AssetContext", "TextureBank", "tint_for", "render_projection", "render_projections", "render_hero"]
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 
 def __getattr__(name):

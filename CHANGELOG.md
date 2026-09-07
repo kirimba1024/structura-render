@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- Reject `.` and `..` resource namespaces before filesystem resolution,
+  complementing the existing checks on resource path components.
+
 ## 0.5.0
 
 - Add `AssetContext`; bind resource-dependent caches to a render's context.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.5.0"
+version = "0.5.1"
 description = "Minecraft block-model resolution, image rendering and 3D export (USDZ/glTF/OBJ/STL)"
 readme = "README.md"
 requires-python = ">=3.9"

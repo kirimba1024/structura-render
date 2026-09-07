@@ -186,18 +186,7 @@ def _depth_range(depth, size, axis):
     return tuple(int(v) for v in depth)
 
 
-def render_projection(source: Union[str, PathLike[str], Structure], *,
-                      view: Literal["top", "bottom", "north", "south", "west", "east"] = "top",
-                      scale: int = 16, color_mode: Literal["family", "block"] = "family",
-                      transparent: bool = False, max_pixels: int = DEFAULT_MAX_PIXELS,
-                      overlays: Optional[ProjectionOverlays] = None,
-                      depth: Optional[Tuple[int, int]] = None) -> Image.Image:
-    """Return one unframed Pillow image from a path or in-memory Structure."""
-    if color_mode not in {"family", "block"}:
-        raise ValueError("color_mode must be 'family' or 'block'")
-    src = load_structure(source)
-    size = _projection_size(src.size, view, scale)
-    _check_pixels(size, max_pixels)
+def projection_cells(src, view, depth=None):
     axis, reverse = VIEWS[view]
     start, stop = _depth_range(depth, src.size, axis)
     plane_axes = tuple(i for i in range(3) if i != axis)
@@ -213,7 +202,22 @@ def render_projection(source: Union[str, PathLike[str], Structure], *,
         closer = pos[axis] > visible_depth[cell] if reverse else pos[axis] < visible_depth[cell]
         if closer:
             visible[cell], visible_depth[cell] = index, pos[axis]
-    visible = orient(visible, view)
+    return orient(visible, view)
+
+
+def render_projection(source: Union[str, PathLike[str], Structure], *,
+                      view: Literal["top", "bottom", "north", "south", "west", "east"] = "top",
+                      scale: int = 16, color_mode: Literal["family", "block"] = "family",
+                      transparent: bool = False, max_pixels: int = DEFAULT_MAX_PIXELS,
+                      overlays: Optional[ProjectionOverlays] = None,
+                      depth: Optional[Tuple[int, int]] = None) -> Image.Image:
+    """Return one unframed Pillow image from a path or in-memory Structure."""
+    if color_mode not in {"family", "block"}:
+        raise ValueError("color_mode must be 'family' or 'block'")
+    src = load_structure(source)
+    size = _projection_size(src.size, view, scale)
+    _check_pixels(size, max_pixels)
+    visible = projection_cells(src, view, depth)
     channels = 4 if transparent else 3
     background = (0, 0, 0, 0) if transparent else (246, 246, 246)
     canvas = np.full((*visible.shape, channels), background, dtype=np.uint8)
@@ -226,6 +230,8 @@ def render_projection(source: Union[str, PathLike[str], Structure], *,
     if overlays is not None:
         if not isinstance(overlays, ProjectionOverlays):
             raise ValueError("overlays must be ProjectionOverlays")
+        axis = VIEWS[view][0]
+        start, stop = _depth_range(depth, src.size, axis)
         canvas = draw_overlays(canvas, overlays, view, src.size, axis, orient, depth=(start, stop))
     return Image.fromarray(canvas).resize(size, Image.Resampling.NEAREST)
 

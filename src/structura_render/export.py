@@ -14,7 +14,8 @@ from .diagnostics import RenderWarning
 from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
 from .textures import TextureBank
 
-FORMATS = {".glb": "gltf", ".gltf": "gltf", ".obj": "obj", ".stl": "stl", ".usdz": "usdz"}
+FORMATS = {".glb": "gltf", ".gltf": "gltf", ".obj": "obj", ".stl": "stl", ".usdz": "usdz",
+           ".usd": "usdz", ".usda": "usdz", ".usdc": "usdz", ".vox": "vox"}
 
 
 def export_structure(source: Union[str, PathLike[str], Structure], output: Union[str, PathLike[str]], *,
@@ -22,20 +23,25 @@ def export_structure(source: Union[str, PathLike[str], Structure], output: Union
                      allow_flat_fallback: bool = False, max_blocks: int = DEFAULT_MAX_BLOCKS,
                      max_voxels: int = DEFAULT_MAX_VOXELS, max_atlas_size: int = DEFAULT_MAX_ATLAS_SIZE,
                      strict: bool = False) -> Path:
-    """Write GLB/glTF/OBJ/STL/USDZ from a path or Structure; return its absolute Path."""
+    """Write GLB/glTF, OBJ, STL, USD/USDZ or VOX; return the absolute output Path."""
     output = Path(output).expanduser().resolve()
     format_name = FORMATS.get(output.suffix.lower())
     if format_name is None:
-        raise ValueError("output must end in .glb, .gltf, .obj, .stl or .usdz")
+        raise ValueError(f"output must end in one of {', '.join(FORMATS)}")
     from .legacy_input import load_structure
     from .textures import MISSING_ASSETS_MESSAGE
 
     try:
+        if format_name == "vox":
+            from .vox import export_vox
+
+            src = load_structure(source, region=region, max_blocks=max_blocks, strict=strict)
+            return export_vox(src, output, max_blocks=max_blocks, strict=strict)
         if format_name == "usdz":
             import_module("pxr.Usd")
         else:
             import trimesh
-        src = load_structure(source, region=region, max_blocks=max_blocks)
+        src = load_structure(source, region=region, max_blocks=max_blocks, strict=strict)
         bank = texture_bank if texture_bank is not None else TextureBank()
         if not bank.available() and not allow_flat_fallback:
             raise ValueError(MISSING_ASSETS_MESSAGE)

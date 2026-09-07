@@ -21,9 +21,11 @@ pip install structura-render
 structura-render examples demo
 structura-render projections demo/demo.nbt demo/views.png
 structura-render projections demo/demo.nbt demo/floor.png --views top --depth 1 4
+structura-render svg demo/demo.nbt demo/floor.svg --view top --depth 1 4
 ```
 
 This produces images without Minecraft resources or a graphics backend.
+See [format recipes](docs/formats.md) for SVG, USD, VOX, lossless WebP and optional Bedrock input.
 
 Install only the output you need:
 

@@ -6,6 +6,7 @@ import importlib
 FORMATS = {
     "projections": "projections", "png": "hero", "gltf": "gltf",
     "glb": "gltf", "obj": "obj", "stl": "stl", "usdz": "usdz", "doctor": "doctor", "examples": "examples",
+    "usd": "usdz", "usda": "usdz", "usdc": "usdz", "svg": "svg", "vox": "vox",
 }
 
 
@@ -18,6 +19,8 @@ def main(argv=None):
     try:
         importlib.import_module(f".{module}", __package__).main(args.arguments)
     except ModuleNotFoundError as error:
+        if error.name == "amulet":
+            parser.error("Bedrock translation needs: pip install 'structura-render[bedrock]'")
         if error.name and error.name.split(".")[0] in {"pyvista", "vtk", "vtkmodules", "trimesh", "networkx", "pxr"}:
             parser.error(f"{args.format} needs: pip install 'structura-render[{module}]'")
         raise

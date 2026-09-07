@@ -87,7 +87,7 @@ def test_khronos_validator_accepts_exported_materials(tmp_path, assets, format_n
     assert report['issues']['numErrors'] == report['issues']['numWarnings'] == 0
 
 
-@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
+@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz', 'usd', 'usda', 'usdc'])
 def test_strict_export_preserves_file_and_replays_cached_notices(tmp_path, assets, format_name):
     from structura_render import RenderWarning
 
@@ -158,7 +158,7 @@ def test_strict_hero_rejects_before_creating_plotter(tmp_path, assets, monkeypat
     assert output.read_bytes() == b'previous'
 
 
-@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
+@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz', 'usd', 'usda', 'usdc'])
 def test_python_export_matches_cli_and_preserves_source(tmp_path, assets, format_name):
     src = structure('stone', 'cutout', 'translucent')
     src.data_version = 3955
@@ -175,7 +175,7 @@ def test_python_export_matches_cli_and_preserves_source(tmp_path, assets, format
     assert str(cli_output) in result.stdout
     assert api_output == (tmp_path / f'api.{format_name}').resolve()
     assert source._root.to_snbt() == before
-    if format_name == 'usdz':
+    if format_name in {'usd', 'usda', 'usdc', 'usdz'}:
         from pxr import Usd, UsdGeom
 
         def geometry(path):
@@ -191,7 +191,7 @@ def test_python_export_matches_cli_and_preserves_source(tmp_path, assets, format
             np.testing.assert_array_equal(scenes[0].bounds, scene.bounds)
 
 
-@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
+@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz', 'usd', 'usda', 'usdc'])
 def test_python_export_atlas_failure_preserves_existing_file(tmp_path, assets, format_name):
     src = structure('stone')
     src.data_version = 3955
@@ -368,3 +368,40 @@ def test_volume_guard_rejects_distant_regions_before_numpy_allocation():
     src.size = (1_000_000_000, 1, 1)
     with pytest.raises(ValueError, match="max_voxels"):
         voxel_state(src)
+
+
+@pytest.mark.parametrize("extension", ["usd", "usda", "usdc"])
+def test_usd_exports_open_with_portable_resources(tmp_path, assets, extension):
+    pytest.importorskip("pxr")
+    from pxr import Sdf, Usd, UsdGeom
+    from pathlib import Path
+    import shutil
+
+    output = tmp_path / f"scene.{extension}"
+    src = structure("stone", "cutout", "translucent")
+    src.data_version = 3955
+    source = tmp_path / "source.nbt"
+    save_structure(src, source, src.size)
+    export_structure(source, output, texture_bank=assets, strict=True)
+    moved = tmp_path / "moved"
+    moved.mkdir()
+    shutil.move(output, moved / output.name)
+    shutil.move(tmp_path / f"{output.name}.assets", moved / f"{output.name}.assets")
+    output = moved / output.name
+    stage = Usd.Stage.Open(str(output))
+    assert stage is not None
+    assert UsdGeom.GetStageUpAxis(stage) == "Y"
+    assert UsdGeom.GetStageMetersPerUnit(stage) == 1.0
+    assert stage.GetDefaultPrim().GetName() == "Model"
+    assert any(prim.IsA(UsdGeom.Mesh) for prim in stage.Traverse())
+    for prim in stage.Traverse():
+        for attribute in prim.GetAttributes():
+            if attribute.GetTypeName() == Sdf.ValueTypeNames.Asset:
+                path = attribute.Get().path
+                assert not Path(path).is_absolute()
+                assert (output.parent / path).is_file()
+                assert Path(attribute.Get().resolvedPath).is_file()
+    if extension == "usda":
+        assert output.read_bytes().startswith(b"#usda")
+    else:
+        assert output.read_bytes().startswith(b"PXR-USDC")

@@ -4,7 +4,7 @@ from pathlib import Path
 import warnings
 from PIL import Image
 from structura_core import Structure
-from structura_render import AssetContext, ProjectionOverlays, RenderWarning, TextureBank, export_structure, render_hero, render_projection, render_projections, tint_for
+from structura_render import AssetContext, ProjectionOverlays, RenderWarning, TextureBank, export_structure, render_hero, render_projection, render_projections, render_svg, tint_for
 
 
 def use_api(source: Structure, assets: Path) -> tuple[Image.Image, Path]:
@@ -16,4 +16,8 @@ def use_api(source: Structure, assets: Path) -> tuple[Image.Image, Path]:
     if tint is None:
         image = render_hero(source, texture_bank=bank, strict=True)
     result = export_structure(source, "demo.glb", texture_bank=bank, strict=True)
+    svg: str = render_svg(source, "floor.svg", view="top", depth=(0, 1), max_elements=1000)
+    if svg:
+        result = export_structure(source, "demo.usdc", texture_bank=bank, strict=True)
+    image.save("preview.webp", lossless=True)
     return image, result

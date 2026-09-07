@@ -49,7 +49,7 @@ def test_plotter_is_closed_when_image_encoding_fails(monkeypatch):
 
     monkeypatch.setattr(pv, "system_supports_plotting", lambda: True)
     monkeypatch.setattr(pv, "Plotter", Plotter)
-    monkeypatch.setattr(legacy_input, "load_structure", lambda src: SimpleNamespace(size=(1, 1, 1)))
+    monkeypatch.setattr(legacy_input, "load_structure", lambda src, **kwargs: SimpleNamespace(size=(1, 1, 1)))
     monkeypatch.setattr(mesh, "voxel_state", lambda *args, **kwargs: (
         np.zeros((1, 1, 1), dtype=int), np.ones((1, 1, 1), dtype=bool), {0: "minecraft:stone"}, {},
     ))

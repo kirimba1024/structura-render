@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- Add standalone vector SVG plans with merged cells, labelled overlays and bounded output.
+- Export USD/USDA/USDC through the existing USDZ scene builder.
+- Export sparse MagicaVoxel scenes with explicit approximation diagnostics.
+- Accept SNBT and optionally translated Bedrock input; document lossless WebP.
+
 ## 0.7.0
 
 - Add `depth=(start, stop)` / `--depth START STOP` to 2D projections for layers

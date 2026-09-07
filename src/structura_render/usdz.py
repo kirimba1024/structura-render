@@ -207,6 +207,29 @@ def package_usdz(source, output):
     return output
 
 
+def publish_usd(stage, directory, output):
+    from pxr import Sdf
+
+    from .export_io import _ResourceWriter, atomic_write
+
+    output = Path(output)
+    writer = _ResourceWriter(output)
+    for prim in stage.Traverse():
+        for attribute in prim.GetAttributes():
+            if attribute.GetTypeName() != Sdf.ValueTypeNames.Asset:
+                continue
+            asset = attribute.Get()
+            if asset and asset.path:
+                source = directory / asset.path
+                name = writer.add(source.name, source.read_bytes())
+                attribute.Set(Sdf.AssetPath(f"{writer.directory.name}/{name}"))
+    prepared = directory / ("export" + output.suffix.lower())
+    if not stage.GetRootLayer().Export(str(prepared)):
+        raise RuntimeError("USD serialization failed")
+    atomic_write(output, prepared.read_bytes())
+    return output
+
+
 def export_usdz(src, output, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False):
     from pxr import Sdf, Usd, UsdGeom
 
@@ -284,7 +307,8 @@ def export_usdz(src, output, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_s
             raise ValueError("structure produced no visible geometry")
         stage.GetRootLayer().Save()
 
-        result = package_usdz(usda_path, output)
+        result = (package_usdz(usda_path, output) if Path(output).suffix.lower() == ".usdz" else
+                  publish_usd(stage, tmp, output))
     return result
 
 

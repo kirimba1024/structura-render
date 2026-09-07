@@ -6,9 +6,9 @@ from pathlib import Path
 from structura_core import Structure, save_structure
 from structura_core import load_structure as load_native
 from structura_core.litematic import DEFAULT_MAX_BLOCKS
-from structura_core.schematic import UnsupportedSchematicVersion
+from structura_core.schematic import MissingSchematicDataVersion, UnsupportedSchematicVersion
 
-NATIVE_SUFFIXES = {".nbt"}
+NATIVE_SUFFIXES = {".nbt", ".snbt"}
 
 
 def _convert(path, directory):
@@ -38,7 +38,7 @@ def as_structure_nbt(path):
         return path
     directory = tempfile.mkdtemp(prefix="structura-render-legacy-")
     try:
-        if path.suffix.lower() in {".litematic", ".schem"}:
+        if path.suffix.lower() in {".litematic", ".schem", ".mcstructure"}:
             src = load_structure(path)
             output = Path(directory) / f"{path.stem}.nbt"
             save_structure(src, output, src.size)
@@ -49,18 +49,21 @@ def as_structure_nbt(path):
         raise
 
 
-def load_structure(path, *, region=None, max_blocks=DEFAULT_MAX_BLOCKS):
+def load_structure(path, *, region=None, max_blocks=DEFAULT_MAX_BLOCKS, strict=False):
     if isinstance(path, Structure):
         if region is not None:
             raise ValueError("region applies only to Litematic files")
+        path.validate()
         return path
     path = Path(path)
-    if path.suffix.lower() in {".litematic", ".schem"}:
+    if path.suffix.lower() in {".litematic", ".schem", ".mcstructure"}:
         try:
-            return load_native(path, region=region, max_blocks=max_blocks)
+            return load_native(path, region=region, max_blocks=max_blocks, strict=strict)
         except UnsupportedSchematicVersion as error:
             if error.version != 1:
                 raise
+        except MissingSchematicDataVersion:
+            pass
     if region is not None:
         raise ValueError("region applies only to Litematic files")
     if path.suffix.lower() in NATIVE_SUFFIXES:

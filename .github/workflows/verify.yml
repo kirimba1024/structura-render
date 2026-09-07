@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        extra: [base, hero, usdz, gltf, obj, stl]
+        extra: [base, hero, usdz, gltf, obj, stl, bedrock]
     steps:
       - uses: actions/setup-python@v7
         with:
@@ -100,8 +100,16 @@ jobs:
           requirement = str(wheel) if extra == "base" else f"{wheel}[{extra}]"
           subprocess.check_call([sys.executable, "-m", "pip", "install", requirement])
           subprocess.check_call([sys.executable, "-m", "pip", "check"])
-          importlib.import_module("structura_render.projections" if extra == "base" else "structura_render.mesh")
-          importlib.import_module("structura_render.projections" if extra == "base" else f"structura_render.{extra}")
+          if extra in {"base", "bedrock"}:
+              for module in ("projections", "svg", "vox"):
+                  importlib.import_module(f"structura_render.{module}")
+          else:
+              importlib.import_module("structura_render.mesh")
+              importlib.import_module(f"structura_render.{extra}")
+          if extra == "bedrock":
+              importlib.import_module("amulet")
+          else:
+              assert importlib.util.find_spec("amulet") is None
           if extra in {"gltf", "obj", "stl"}:
               importlib.import_module("structura_render.mesh_export")
           if extra == "usdz":
@@ -111,7 +119,7 @@ jobs:
           else:
               assert importlib.util.find_spec("pyvista") is None
               assert importlib.util.find_spec("vtkmodules") is None
-          if extra in {"base", "hero", "usdz"}:
+          if extra in {"base", "hero", "usdz", "bedrock"}:
               assert importlib.util.find_spec("trimesh") is None
           PYTHON
 
@@ -154,6 +162,9 @@ jobs:
           structura-render examples "$RUNNER_TEMP/structura-demo"
           structura-render doctor --json
           structura-render projections "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/floor.png" --views top --depth 1 4
+          structura-render svg "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/floor.svg" --depth 1 4 --title 'Ground floor'
+          structura-render vox "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/demo.vox"
+          structura-convert "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/demo.snbt" --strict
           structura-convert "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/demo.litematic" --strict
           structura-render gltf "$RUNNER_TEMP/structura-demo/demo.nbt" "$RUNNER_TEMP/structura-demo/demo.glb" --allow-flat-fallback
           node checks/validate_gltf.cjs "$RUNNER_TEMP/structura-demo/demo.glb"

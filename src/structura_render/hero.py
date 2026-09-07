@@ -46,7 +46,7 @@ def render_hero(source: Union[str, PathLike[str], Structure], output: Optional[U
 
     if not pv.system_supports_plotting():
         raise PlottingUnavailableError("no supported plotting backend")
-    src = load_structure(source)
+    src = load_structure(source, strict=strict)
     sx, sy, sz = src.size
     state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
 
@@ -141,7 +141,7 @@ def main(argv=None):
     from .legacy_input import load_structure
 
     try:
-        src = load_structure(args.src, region=args.region, max_blocks=args.max_blocks)
+        src = load_structure(args.src, region=args.region, max_blocks=args.max_blocks, strict=args.strict)
         with warnings.catch_warnings(record=True) as notices:
             warnings.simplefilter("always", RenderWarning)
             render_hero(src, args.output, window=args.window, azimuth=args.azimuth,

@@ -7,11 +7,12 @@ import numpy as np
 from PIL import Image
 from structura_core import AIR_NAMES
 
+from .assets import current_context
 from .block_model import AXIS_VEC, FACE_CORNERS, block_elements, post_texture
 from .entities import structure_parts
 from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
-from .geometry import DEFAULT_MAX_VOXELS, TexturedMesh
+from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS, TexturedMesh
 from .projections import block_color, family
 from .textures import tint_for
 
@@ -125,9 +126,13 @@ def is_occluder(name, props):
 
 
 class Atlas:
-    def __init__(self):
+    def __init__(self, max_size=DEFAULT_MAX_ATLAS_SIZE):
+        if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 1:
+            raise ValueError("max_atlas_size must be a positive integer")
+        self.max_size = max_size
         self.images = []
         self.index = {}
+        self.area = 0
 
     def add(self, image):
         key = (
@@ -136,33 +141,54 @@ class Atlas:
             hashlib.blake2b(image.tobytes(), digest_size=16).digest(),
         )
         if key not in self.index:
+            area = image.width * image.height
+            if self.area + area > self.max_size ** 2 or max(image.size) > self.max_size:
+                raise ValueError(f"textures exceed max_atlas_size={self.max_size}; use a smaller pack or raise the limit")
+            self.area += area
             self.index[key] = len(self.images)
             self.images.append(image)
         return self.index[key]
 
-    def build(self, padding=2):
-        count = len(self.images)
-        cols = max(1, int(np.ceil(np.sqrt(count))))
-        rows = int(np.ceil(count / cols))
-        size = 16
-        cell = size + 2 * padding
-        atlas_w, atlas_h = cols * cell, rows * cell
-        atlas = np.zeros((atlas_h, atlas_w, 4), dtype=np.uint8)
+    def build(self, padding=2, *, max_size=None):
+        max_size = self.max_size if max_size is None else max_size
+        if isinstance(max_size, bool) or not isinstance(max_size, int) or max_size < 1:
+            raise ValueError("max_atlas_size must be a positive integer")
+        if isinstance(padding, bool) or not isinstance(padding, int) or padding < 0:
+            raise ValueError("atlas padding must be a nonnegative integer")
+        if not self.images:
+            return np.zeros((1, 1, 4), dtype=np.uint8), []
+        sizes = [(image.width + 2 * padding, image.height + 2 * padding) for image in self.images]
+        area = sum(w * h for w, h in sizes)
+        if area > max_size * max_size or any(max(size) > max_size for size in sizes):
+            raise ValueError(f"textures exceed max_atlas_size={max_size}; use a smaller pack or raise the limit")
+        width = min(max_size, max(max(w for w, h in sizes), math.ceil(math.sqrt(area))))
+        order = sorted(range(len(sizes)), key=lambda i: (-sizes[i][1], -sizes[i][0], i))
+        while True:
+            positions = [None] * len(sizes)
+            x = y = row_height = used_width = 0
+            for i in order:
+                w, h = sizes[i]
+                if x + w > width:
+                    y += row_height
+                    x = row_height = 0
+                positions[i] = (x, y)
+                x += w
+                used_width = max(used_width, x)
+                row_height = max(row_height, h)
+            height = y + row_height
+            if height <= max_size:
+                break
+            if width == max_size:
+                raise ValueError(f"textures do not fit max_atlas_size={max_size}; use a smaller pack or raise the limit")
+            width = min(max_size, width * 2)
+        atlas = np.zeros((height, used_width, 4), dtype=np.uint8)
         rects = []
-        for i, image in enumerate(self.images):
-            row, col = divmod(i, cols)
-            image = image.convert("RGBA").resize((size, size), resample=0)
-            tile = np.pad(
-                np.asarray(image), ((padding, padding), (padding, padding), (0, 0)),
-                mode="edge",
-            )
-            r0, c0 = row * cell, col * cell
-            atlas[r0:r0 + cell, c0:c0 + cell] = tile
-            px0, px1 = c0 + padding, c0 + padding + size
-            py0, py1 = r0 + padding, r0 + padding + size
-            u_min, u_max = px0 / atlas_w, px1 / atlas_w
-            v_max, v_min = 1 - py0 / atlas_h, 1 - py1 / atlas_h
-            rects.append((u_min, u_max, v_min, v_max))
+        for image, (x, y), (w, h) in zip(self.images, positions, sizes):
+            tile = np.pad(np.asarray(image.convert("RGBA")),
+                          ((padding, padding), (padding, padding), (0, 0)), mode="edge")
+            atlas[y:y + h, x:x + w] = tile
+            rects.append(((x + padding) / used_width, (x + w - padding) / used_width,
+                          1 - (y + h - padding) / height, 1 - (y + padding) / height))
         return atlas, rects
 
 
@@ -377,8 +403,15 @@ def resolve_special_parts(shape, bank, atlas):
     return parts
 
 
-def build_textured_geometry(src, solid, state, index_names, index_props, bank):
-    atlas = Atlas()
+def build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
+    context = getattr(bank, "context", None) or current_context()
+    with context.activate():
+        return _build_textured_geometry(src, solid, state, index_names, index_props, bank,
+                                        max_atlas_size=max_atlas_size)
+
+
+def _build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size):
+    atlas = Atlas(max_size=max_atlas_size)
     resolved = {}
     generic = {}
     specials = {}
@@ -491,7 +524,7 @@ def build_textured_geometry(src, solid, state, index_names, index_props, bank):
     atlas_image = None
     rects = []
     if atlas.images:
-        atlas_image, rects = atlas.build()
+        atlas_image, rects = atlas.build(max_size=max_atlas_size)
 
     points_all, faces_all, uv_all = [], [], []
     material_modes, mode_cache = [], {}
@@ -699,10 +732,10 @@ def build_textured_geometry(src, solid, state, index_names, index_props, bank):
     return [mesh], flat_entities, textured_indices, occluder
 
 
-def build_textured_meshes(src, solid, state, index_names, index_props, bank):
+def build_textured_meshes(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
     """Compatibility adapter returning PyVista meshes and textures."""
     meshes, entities, indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
     )
     return [mesh.to_pyvista() for mesh in meshes], entities, indices, occluder
 
@@ -765,7 +798,7 @@ def triangulate_quads(quads):
 
 
 ATLAS_UPSCALE = 8
-MAX_ATLAS_SIZE = 2048
+MAX_ATLAS_SIZE = DEFAULT_MAX_ATLAS_SIZE
 
 
 def upscale_atlas(image):
@@ -818,10 +851,10 @@ def export_parts(meshes, flat_groups, center):
     return export(meshes, flat_groups, center)
 
 
-def structure_export_parts(src, bank, *, max_voxels=DEFAULT_MAX_VOXELS):
+def structure_export_parts(src, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
     state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
     meshes, _, textured_indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
     )
     flat_groups = flat_block_groups(state, index_names, textured_indices, occluder)
     center = np.asarray(src.size, dtype=np.float32) / 2.0

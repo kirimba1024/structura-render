@@ -9,18 +9,19 @@ import pytest
 import trimesh
 from amulet_nbt import CompoundTag, StringTag
 from PIL import Image
+from structura_core import Structure, export_litematic, save_structure
+from structura_core.export_schematic import export_schematic
 
 from structura_render import block_model, textures
 from structura_render.export_io import write_gltf, write_obj
 from structura_render.mesh import (
-    build_textured_meshes,
     build_textured_geometry,
+    build_textured_meshes,
     structure_export_parts,
     voxel_state,
     vtk_quads,
 )
 from structura_render.stl import export_stl
-from structura_core import Structure, export_litematic, save_structure
 
 
 @pytest.fixture
@@ -30,13 +31,7 @@ def assets(tmp_path, monkeypatch):
     images = tmp_path / "textures/block"
     for directory in (states, models, images):
         directory.mkdir(parents=True)
-    monkeypatch.setattr(block_model, "BLOCKSTATES", states)
-    monkeypatch.setattr(block_model, "MODELS", models)
-    monkeypatch.setattr(block_model, "_blockstate_cache", {})
-    monkeypatch.setattr(block_model, "_model_cache", {})
-    monkeypatch.setattr(textures, "BLOCK_TEXTURES", images)
-    monkeypatch.setattr(textures, "TEXTURES", images.parent)
-    monkeypatch.setattr(textures, "ASSET_DIRECTORIES", (states, models, images))
+    monkeypatch.setenv("STRUCTURA_MINECRAFT_ASSETS", str(tmp_path))
     for name, alpha in (("stone", 255), ("cutout", 255), ("translucent", 128)):
         pixels = np.full((16, 16, 4), (100, 150, 200, alpha), dtype=np.uint8)
         if name == "cutout":
@@ -139,7 +134,7 @@ def test_empty_model_is_hidden_without_losing_visible_neighbors(assets):
                    "faces": {"up": {"texture": "#missing_reference"}}}]},
 ])
 def test_unresolved_model_does_not_silently_hide_a_block(assets, model):
-    (block_model.MODELS / "stone.json").write_text(json.dumps(model))
+    (assets.context.root / "models/block/stone.json").write_text(json.dumps(model))
     assert block_model.block_elements("minecraft:stone", {}) is None
     parts = structure_export_parts(structure("stone"), assets)
     assert sum(len(part.faces) for _, part in parts) == 12
@@ -182,18 +177,20 @@ def test_numpy_geometry_and_compatibility_adapter_keep_identical_buffers(assets)
 
 
 @pytest.mark.parametrize("output_format", ["glb", "gltf", "obj", "stl", "usdz"])
-def test_litematic_cli_export_works_with_plotting_imports_blocked(tmp_path, assets, output_format):
+@pytest.mark.parametrize("input_format", ["litematic", "schem"])
+def test_native_cli_export_works_with_plotting_imports_blocked(tmp_path, assets, output_format, input_format):
     src = structure("stone", "cutout", "translucent")
     src.data_version = 3955
     nbt = tmp_path / "input.nbt"
     save_structure(src, nbt, src.size)
-    source = export_litematic(Structure(nbt), tmp_path / "input.litematic")
+    export = export_litematic if input_format == "litematic" else export_schematic
+    source = export(Structure(nbt), tmp_path / f"input.{input_format}")
     output = tmp_path / f"model.{output_format}"
     script = """
 import importlib.abc, runpy, sys
 class NoPlotting(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'pyvista', 'vtk', 'vtkmodules'}:
+        if fullname.split('.')[0] in {'pyvista', 'vtk', 'vtkmodules', 'amulet'}:
             raise AssertionError('file export imported a plotting backend: ' + fullname)
 sys.meta_path.insert(0, NoPlotting())
 sys.argv = ['structura-render', *sys.argv[1:]]

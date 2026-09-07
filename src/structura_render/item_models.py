@@ -8,13 +8,8 @@ reimplementing the client's predicates, glints, trims, or animation.
 """
 
 import json
-from functools import lru_cache
 
-from .assets import ASSETS
-
-ITEMS = ASSETS / "items"
-MODELS = ASSETS / "models"
-TEXTURES = ASSETS / "textures"
+from .assets import context_cached, current_context
 
 
 def _plain(value):
@@ -38,7 +33,7 @@ def item_id(stack):
     return name if ":" in name else f"minecraft:{name}"
 
 
-@lru_cache(maxsize=None)
+@context_cached
 def _json(path):
     try:
         return json.loads(path.read_text())
@@ -77,11 +72,10 @@ def _static_model(node):
 
 
 def _model_path(name):
-    plain = _plain(name)
-    return MODELS / f"{plain}.json"
+    return current_context().path("models", name, ".json")
 
 
-@lru_cache(maxsize=None)
+@context_cached
 def _resolved_model(name, depth=0):
     if depth > 16:
         return None
@@ -106,25 +100,25 @@ def _texture_ref(ref, textures, depth=0):
     return _plain(ref)
 
 
-@lru_cache(maxsize=None)
+@context_cached
 def item_texture(identifier):
     """Return a texture stem for the stack's base static item appearance."""
     name = _plain(identifier)
-    definition = _json(ITEMS / f"{name}.json")
+    definition = _json(current_context().path("items", identifier, ".json"))
     model_name = _static_model(definition.get("model")) if definition else None
     model_name = model_name or f"item/{name}"
     model = _resolved_model(str(model_name))
     if model is None:
         direct = f"item/{name}"
-        return direct if (TEXTURES / f"{direct}.png").is_file() else None
+        return direct if (current_context().path("textures", direct, ".png")).is_file() else None
     textures = model["textures"]
     for key in ("layer0", "particle", "all", "texture", "side", "top"):
         stem = _texture_ref(textures.get(key), textures)
-        if stem and (TEXTURES / f"{stem}.png").is_file():
+        if stem and (current_context().path("textures", stem, ".png")).is_file():
             return stem
     for ref in textures.values():
         stem = _texture_ref(ref, textures)
-        if stem and (TEXTURES / f"{stem}.png").is_file():
+        if stem and (current_context().path("textures", stem, ".png")).is_file():
             return stem
     return None
 

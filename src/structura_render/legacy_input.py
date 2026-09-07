@@ -1,10 +1,12 @@
-"""Native NBT/Litematic input, with optional translation of legacy schematics."""
+"""Native NBT/Litematic/Sponge input, with optional translation of legacy schematics."""
+import shutil
 import tempfile
 from pathlib import Path
 
 from structura_core import Structure, save_structure
 from structura_core import load_structure as load_native
 from structura_core.litematic import DEFAULT_MAX_BLOCKS
+from structura_core.schematic import UnsupportedSchematicVersion
 
 NATIVE_SUFFIXES = {".nbt"}
 
@@ -35,12 +37,16 @@ def as_structure_nbt(path):
     if path.suffix.lower() in NATIVE_SUFFIXES:
         return path
     directory = tempfile.mkdtemp(prefix="structura-render-legacy-")
-    if path.suffix.lower() == ".litematic":
-        src = load_native(path)
-        output = Path(directory) / f"{path.stem}.nbt"
-        save_structure(src, output, src.size)
-        return output
-    return _convert(path, directory)
+    try:
+        if path.suffix.lower() in {".litematic", ".schem"}:
+            src = load_structure(path)
+            output = Path(directory) / f"{path.stem}.nbt"
+            save_structure(src, output, src.size)
+            return output
+        return _convert(path, directory)
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
 
 
 def load_structure(path, *, region=None, max_blocks=DEFAULT_MAX_BLOCKS):
@@ -49,8 +55,12 @@ def load_structure(path, *, region=None, max_blocks=DEFAULT_MAX_BLOCKS):
             raise ValueError("region applies only to Litematic files")
         return path
     path = Path(path)
-    if path.suffix.lower() == ".litematic":
-        return load_native(path, region=region, max_blocks=max_blocks)
+    if path.suffix.lower() in {".litematic", ".schem"}:
+        try:
+            return load_native(path, region=region, max_blocks=max_blocks)
+        except UnsupportedSchematicVersion as error:
+            if error.version != 1:
+                raise
     if region is not None:
         raise ValueError("region applies only to Litematic files")
     if path.suffix.lower() in NATIVE_SUFFIXES:

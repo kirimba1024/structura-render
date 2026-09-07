@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 DEFAULT_MAX_VOXELS = 16_000_000
+DEFAULT_MAX_ATLAS_SIZE = 2048
 
 
 @dataclass

@@ -3,11 +3,9 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from structura_render import entities
-from structura_render import entity_models
+from structura_render import AssetContext, entities, entity_models, textures
 from structura_render.entity_shapes import entity_shape, nbt_signature
 from structura_render.item_models import _static_model, item_id
-from structura_render import textures
 
 
 def test_modern_and_legacy_facing_numbers_are_not_conflated():
@@ -107,7 +105,7 @@ def test_approximate_rig_uses_an_opaque_crop_instead_of_the_whole_uv_sheet(
         for y in range(4):
             image.putpixel((x, y), (30 + x, 60 + y, 90, 255))
     image.save(texture_path)
-    monkeypatch.setattr(entities, "ASSETS", tmp_path)
+    monkeypatch.setenv("STRUCTURA_MINECRAFT_ASSETS", str(tmp_path))
 
     (part,) = entities.dummy_parts(
         {}, kind="test", family="cube", textures=("entity/test",),
@@ -142,16 +140,12 @@ def test_baked_model_quads_keep_per_face_uv_and_giant_scale(tmp_path, monkeypatc
     minecart_texture = tmp_path / "textures/entity/minecart/minecart.png"
     minecart_texture.parent.mkdir(parents=True)
     Image.new("RGBA", (64, 32), (80, 80, 80, 255)).save(minecart_texture)
-    monkeypatch.setattr(entity_models, "ASSETS", tmp_path)
-    entity_models._texture_image.cache_clear()
-    try:
+    with AssetContext(tmp_path).activate():
         zombie = entity_models.model_parts("zombie", {}, "entity/zombie/zombie")
         giant = entity_models.model_parts("giant", {}, "entity/zombie/zombie")
         minecart = entity_models.model_parts(
             "minecart", {}, "entity/minecart/minecart", layer="MINECART", ground=True,
         )
-    finally:
-        entity_models._texture_image.cache_clear()
 
     assert zombie and all("quad_uvs" in part for part in zombie)
     points = [point for part in giant for quad in part["quads"] for point in quad]
@@ -296,10 +290,10 @@ def test_decorated_pot_signature_preserves_four_ordered_sides():
 
 
 def test_unknown_sherd_pattern_falls_back_to_plain_pot_side(tmp_path, monkeypatch):
-    plain = tmp_path / "entity/decorated_pot/decorated_pot_side.png"
+    plain = tmp_path / "textures/entity/decorated_pot/decorated_pot_side.png"
     plain.parent.mkdir(parents=True)
     Image.new("RGBA", (16, 16), (12, 34, 56, 255)).save(plain)
-    monkeypatch.setattr(textures, "TEXTURES", tmp_path)
+    monkeypatch.setenv("STRUCTURA_MINECRAFT_ASSETS", str(tmp_path))
 
     image = textures.TextureBank().read_asset(
         "entity/decorated_pot/future_pottery_pattern"

@@ -1,13 +1,19 @@
 """Minecraft client-asset discovery without a repository-relative import."""
 
 import hashlib
+import json
 import os
+import re
 import sys
 import zipfile
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 _VERSION_MARKER_BLOCK = "heavy_core"
-_LAYOUT = 2  # bump when the extracted member set changes, or caches go stale
+_LAYOUT = 2
 
 
 def _cache_root() -> Path:
@@ -40,9 +46,18 @@ def _extract_jar_assets(jar_path: Path) -> Path:
                 f"{jar_path} has no assets/minecraft/ entries; "
                 "is this a real Minecraft client jar?",
             )
-        dest.mkdir(parents=True, exist_ok=True)
-        archive.extractall(dest, members=members)
-    marker.touch()
+        if any(".." in Path(name).parts or "\\" in name for name in members):
+            raise ValueError("client jar contains an invalid resource path")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=dest.parent, prefix=f".{key}.") as temporary:
+            staging = Path(temporary) / key
+            archive.extractall(staging, members=members)
+            (staging / ".extracted").touch()
+            try:
+                staging.rename(dest)
+            except OSError:
+                if not marker.is_file() or not target.is_dir():
+                    raise
     return target
 
 
@@ -105,21 +120,77 @@ def minecraft_assets_root() -> Path:
     return Path.cwd() / "assets" / "minecraft"
 
 
-ASSETS = minecraft_assets_root()
-
-
 def _pack_data_root(assets_root):
-    """data/minecraft beside assets/minecraft, when the pack has one.
-
-    Paintings are the reason this exists: their sizes are a registry, shipped
-    under data/, while their textures are under assets/. A directory a user
-    points at may hold only assets, so this is allowed to be missing.
-    """
-    for parent in (assets_root.parents[1] if len(assets_root.parents) > 1 else assets_root,):
-        candidate = parent / "data" / "minecraft"
-        if candidate.is_dir():
-            return candidate
-    return None
+    """Optional painting registry beside the asset directory."""
+    if len(assets_root.parents) < 2:
+        return None
+    candidate = assets_root.parents[1] / "data/minecraft"
+    return candidate if candidate.is_dir() else None
 
 
-DATA = _pack_data_root(ASSETS)
+_active_context = ContextVar("structura_assets", default=None)
+_RESOURCE = re.compile(r"(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+\Z")
+
+
+class AssetContext:
+    """Own a resource root and its caches for one or more renders."""
+
+    def __init__(self, source=None):
+        root = minecraft_assets_root() if source is None else Path(source).expanduser().resolve()
+        self.root = _extract_jar_assets(root) if root.is_file() and root.suffix == ".jar" else root
+        self.data = _pack_data_root(self.root)
+        self._caches = {}
+
+    def path(self, directory, identifier, suffix=""):
+        if not _RESOURCE.fullmatch(identifier):
+            raise ValueError(f"invalid resource identifier: {identifier!r}")
+        namespace, name = identifier.split(":", 1) if ":" in identifier else ("minecraft", identifier)
+        if any(part in {"", ".", ".."} for part in name.split("/")):
+            raise ValueError(f"invalid resource path: {identifier!r}")
+        root = self.root if namespace == "minecraft" else self.root.parent / namespace
+        return root / directory / f"{name}{suffix}"
+
+    def cache(self, key):
+        return self._caches.setdefault(key, {})
+
+    def clear(self):
+        """Discard cached data after changing files in this resource pack."""
+        for cache in self._caches.values():
+            cache.clear()
+
+    @contextmanager
+    def activate(self):
+        token = _active_context.set(self)
+        try:
+            yield self
+        finally:
+            _active_context.reset(token)
+
+
+def current_context():
+    return _active_context.get() or AssetContext()
+
+
+def context_cached(function):
+    @wraps(function)
+    def cached(*args, **kwargs):
+        context = current_context()
+        cache = context.cache(function)
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            with context.activate():
+                cache[key] = function(*args, **kwargs)
+        return cache[key]
+    return cached
+
+
+@context_cached
+def read_json(path):
+    return json.loads(path.read_text()) if path.is_file() else None
+
+
+def __getattr__(name):
+    if name in {"ASSETS", "DATA"}:
+        context = current_context()
+        return context.root if name == "ASSETS" else context.data
+    raise AttributeError(name)

@@ -16,12 +16,11 @@ different size from ascii.png's.
 """
 
 import json
-from functools import lru_cache
 
 import numpy as np
 from PIL import Image
 
-from .assets import ASSETS
+from .assets import context_cached, current_context
 
 HEIGHT = 8
 MISSING = "?"
@@ -33,7 +32,7 @@ def _providers(font_id, seen=None):
     if font_id in seen:
         return []
     seen.add(font_id)
-    path = ASSETS / "font" / f"{font_id.split(':', 1)[-1]}.json"
+    path = current_context().path("font", font_id, ".json")
     if not path.is_file():
         return []
     result = []
@@ -46,11 +45,12 @@ def _providers(font_id, seen=None):
 
 
 def _bitmap_glyphs(provider):
-    file_id = provider["file"].split(":", 1)[-1]
-    path = ASSETS / "textures" / file_id
+    file_id = provider["file"]
+    path = current_context().path("textures", file_id)
     if not path.is_file():
         return
-    alpha = np.asarray(Image.open(path).convert("RGBA"))[:, :, 3]
+    with Image.open(path) as image:
+        alpha = np.asarray(image.convert("RGBA"))[:, :, 3]
     rows = provider["chars"]
     cell_h = alpha.shape[0] // len(rows)
     cell_w = alpha.shape[1] // len(rows[0])
@@ -69,7 +69,7 @@ def _bitmap_glyphs(provider):
             yield char, (file_id.removesuffix(".png"), crop, round(width * scale) + 1)
 
 
-@lru_cache(maxsize=1)
+@context_cached
 def _glyphs():
     table = {}
     for provider in _providers(DEFAULT_FONT):

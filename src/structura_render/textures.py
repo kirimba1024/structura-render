@@ -1,14 +1,12 @@
-"""Resolve vanilla block textures, extracted once from the player's own
-licensed client jar into assets/minecraft/textures/block/ (not redistributed,
-just a local convenience cache for this private project's own renders)."""
+"""Textures and static animation frames from an isolated resource context."""
+
+import json
+
 import numpy as np
 from PIL import Image
 
-from .assets import ASSETS
+from .assets import current_context
 
-BLOCK_TEXTURES = ASSETS / "textures/block"
-TEXTURES = ASSETS / "textures"
-ASSET_DIRECTORIES = (ASSETS / "blockstates", ASSETS / "models/block", BLOCK_TEXTURES)
 MISSING_ASSETS_MESSAGE = (
     "Minecraft assets were not found; set STRUCTURA_MINECRAFT_ASSETS to a "
     "client jar or extracted assets/minecraft directory"
@@ -86,12 +84,14 @@ def tint_for(name, props=None):
 
 
 class TextureBank:
-    def __init__(self):
-        self._cache = {}
-        self._asset_cache = {}
+    def __init__(self, context=None):
+        self.context = context if context is not None else current_context()
+        self._cache = self.context.cache("block_textures")
+        self._asset_cache = self.context.cache("asset_textures")
 
     def available(self):
-        return all(path.is_dir() for path in ASSET_DIRECTORIES)
+        return all((self.context.root / directory).is_dir()
+                   for directory in ("blockstates", "models/block", "textures/block"))
 
     def read_texture(self, stem, tint=None):
         image = self._read(stem)
@@ -104,13 +104,13 @@ class TextureBank:
         if stem.startswith("effect/"):
             image = self._effect(stem)
         else:
-            path = TEXTURES / f"{stem}.png"
+            path = self.context.path("textures", stem, ".png")
             if not path.exists() and stem == "entity/banner/banner_base":
-                path = TEXTURES / "entity/banner_base.png"
+                path = self.context.path("textures", "entity/banner_base", ".png")
             if (not path.exists()
                     and stem.startswith("entity/decorated_pot/")
                     and stem.endswith("_pottery_pattern")):
-                path = TEXTURES / "entity/decorated_pot/decorated_pot_side.png"
+                path = self.context.path("textures", "entity/decorated_pot/decorated_pot_side", ".png")
             image = self._open(path)
         if image is not None and crop:
             image = image.crop(crop)
@@ -128,9 +128,33 @@ class TextureBank:
         if not path.exists():
             return None
         with Image.open(path) as source:
+            if source.width * source.height > 16_000_000:
+                raise ValueError(f"texture exceeds 16,000,000 pixels: {path}")
             image = source.convert("RGBA")
-        if image.height > image.width and "entity" not in path.parts:
-            image = image.crop((0, 0, image.width, image.width))
+        metadata_path = path.with_suffix(path.suffix + ".mcmeta")
+        metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
+        if not isinstance(metadata, dict):
+            raise ValueError(f"invalid texture metadata: {metadata_path}")
+        animation = metadata.get("animation")
+        if animation is not None and "entity" not in path.parts:
+            if not isinstance(animation, dict):
+                raise ValueError(f"invalid texture animation: {metadata_path}")
+            default = min(image.size)
+            width = animation.get("width", image.width if "height" in animation else default)
+            height = animation.get("height", image.height if "width" in animation else default)
+            if any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in (width, height)):
+                raise ValueError(f"invalid animation frame size: {metadata_path}")
+            if image.width % width or image.height % height:
+                raise ValueError(f"animation frame size does not divide texture: {metadata_path}")
+            frames = animation.get("frames", [])
+            if not isinstance(frames, list):
+                raise ValueError(f"invalid animation frames: {metadata_path}")
+            first = frames[0] if frames else 0
+            index = first.get("index") if isinstance(first, dict) else first
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < image.width // width * (image.height // height):
+                raise ValueError(f"invalid animation frame index: {metadata_path}")
+            row, column = divmod(index, image.width // width)
+            image = image.crop((column * width, row * height, (column + 1) * width, (row + 1) * height))
         return image
 
     @staticmethod
@@ -146,7 +170,7 @@ class TextureBank:
     def _read(self, stem):
         if stem in self._cache:
             return self._cache[stem]
-        image = self._open(BLOCK_TEXTURES / f"{stem}.png")
+        image = self._open(self.context.path("textures", stem if ":" in stem else f"block/{stem}", ".png"))
         self._cache[stem] = image
         return image
 

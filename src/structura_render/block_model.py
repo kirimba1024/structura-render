@@ -3,10 +3,7 @@ import json
 import math
 from functools import wraps
 
-from .assets import ASSETS
-
-BLOCKSTATES = ASSETS / "blockstates"
-MODELS = ASSETS / "models/block"
+from .assets import current_context, read_json
 
 DIRECTIONS = ("up", "down", "north", "south", "east", "west")
 AXIS_VEC = {
@@ -32,8 +29,6 @@ FACE_UV_PLANE = {
     "east": (2, 1), "west": (2, 1),
 }
 
-_blockstate_cache = {}
-_model_cache = {}
 _RESOLUTION_ERRORS = (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError)
 
 
@@ -53,19 +48,13 @@ def strip_ns(name):
 
 
 def load_blockstate(name):
-    name = strip_ns(name)
-    if name not in _blockstate_cache:
-        path = BLOCKSTATES / f"{name}.json"
-        _blockstate_cache[name] = json.loads(path.read_text()) if path.exists() else None
-    return _blockstate_cache[name]
+    return read_json(current_context().path("blockstates", name, ".json"))
 
 
 def load_model(name):
-    name = strip_ns(name)
-    if name not in _model_cache:
-        path = MODELS / f"{name}.json"
-        _model_cache[name] = json.loads(path.read_text()) if path.exists() else None
-    return _model_cache[name]
+    namespace, value = name.split(":", 1) if ":" in name else ("minecraft", name)
+    value = value if "/" in value else f"block/{value}"
+    return read_json(current_context().path("models", f"{namespace}:{value}", ".json"))
 
 
 def resolve_model(name, depth=0):
@@ -90,7 +79,7 @@ def resolve_texture(ref, textures, depth=0):
     key = ref[1:] if ref.startswith("#") else ref
     if key in textures:
         return resolve_texture(textures[key], textures, depth + 1)
-    return strip_ns(ref) if not ref.startswith("#") else None
+    return (strip_ns(ref) if ref.startswith("minecraft:") or ":" not in ref else ref) if not ref.startswith("#") else None
 
 
 def matching_variant(variants, props):

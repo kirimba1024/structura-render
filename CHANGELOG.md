@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+- Add `AssetContext`; bind resource-dependent caches to a render's context.
+  Keep default `TextureBank()` calls, support reuse and explicit cache clearing,
+  isolate nested/concurrent contexts and remove runtime import-time discovery.
+- Publish extracted client assets only after extraction completes.
+- Add optional `ProjectionOverlays` for envelope, aura, cavern aura and a dashed
+  building level, with validated Python masks and bounded NPZ CLI input.
+- Accept native Sponge v2/v3 input in all render/export commands; require
+  structura-core 0.4.0. Legacy `.schematic` conversion remains available.
+- Preserve HD texture pixels and rectangular crops in a bounded atlas instead
+  of resizing every image to 16×16. Add `--max-atlas-size` / `max_atlas_size`.
+- Distinguish tall static textures from animations; honor the first `.mcmeta`
+  frame and its dimensions. Keep UV and material regression checks.
+
 ## 0.4.0
 
 - Accept native `.litematic` input in every output, with `--region` and

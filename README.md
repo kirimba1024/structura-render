@@ -2,7 +2,7 @@
 
 **Minecraft structures, rendered like Minecraft.**
 
-Turn a Java Edition Structure NBT or Litematic into a PNG or a portable 3D model.
+Turn a Java Edition Structure NBT, Litematic or Sponge schematic into a PNG or a portable 3D model.
 `structura-render` reads the blockstates, models and textures from your own
 Minecraft client, so stairs stay stairs, doors keep their state, glass keeps
 its alpha and every export agrees with the preview.
@@ -55,8 +55,8 @@ Extras can be combined:
 pip install "structura-render[hero,usdz,gltf,obj,stl]"
 ```
 
-Every command accepts `.nbt` and `.litematic` natively. Legacy `.schematic` and Sponge `.schem` inputs
-are available through the `legacy` extra:
+Every command accepts `.nbt`, `.litematic` and Sponge v2/v3 `.schem` natively.
+Legacy `.schematic` input is available through the `legacy` extra:
 
 ```bash
 pip install "structura-render[hero,legacy]"
@@ -112,9 +112,75 @@ according to image area, without constructing a dense 3D volume.
 
 Default guards are 16,000,000 output pixels (`max_pixels` / `--max-pixels`),
 16,000,000 cells in a 3D bounding box (`max_voxels` / `--max-voxels`) and
-2,000,000 decoded Litematic cells (`--max-blocks`). Larger trusted inputs can
+2,000,000 decoded Litematic/Sponge cells (`--max-blocks`). Larger trusted inputs can
 raise these limits; choosing `--region` avoids allocating the empty space
 between distant regions. These guards are not a bound on total process memory.
+
+## Diagnostic overlays
+
+Pass ready boolean masks in the structure's local X/Y/Z coordinates:
+
+```python
+from structura_render import ProjectionOverlays, render_projections
+
+overlays = ProjectionOverlays(envelope=envelope_mask, cavern_aura=cavern_mask,
+                              aura=aura_mask, ground_y=12)
+render_projections(structure, "diagnostic.png", overlays=overlays)
+```
+
+`render_projection` accepts the same option, including transparent output.
+Cavern aura is translucent blue, aura is cyan, and envelope is purple with a
+solid contour. Side views show `ground_y` as a dashed line (two cells on, two
+off). Masks must match the structure size and have boolean dtype; inputs are
+not modified. Computing envelope/aura belongs to the caller's geometry layer.
+All fields are optional; ordinary projections retain their previous appearance.
+
+```bash
+structura-render projections house.schem views.png --ground-y 12
+structura-render projections house.schem views.png --overlays masks.npz
+```
+
+The optional NPZ contains only `envelope`, `aura`, and/or `cavern_aura` arrays;
+write it with `numpy.savez_compressed`. Object arrays are rejected and archive
+sizes are checked against `--max-blocks` before loading.
+
+## Independent resources
+
+```python
+from structura_render import AssetContext, TextureBank, render_hero
+
+resources = AssetContext("/path/to/assets/minecraft")
+bank = TextureBank(resources)
+render_hero(structure, "house.png", texture_bank=bank)
+```
+
+A context owns JSON, texture, entity, item and font caches. Geometry builders
+activate the bank's context internally; nested calls and independent renders
+in different threads keep their resources separate. Importing runtime modules
+does not discover or extract assets. `TextureBank()` still works and resolves
+the environment at construction, so existing calls remain valid.
+
+Reuse a bank/context for a series of renders. If its files change, call
+`resources.clear()` before the next render; existing banks are refreshed too.
+Use a new context for another root. Low-level helpers can run inside
+`with resources.activate():`. This scope is local to the current execution
+context, not a process-wide switch. Client jars are extracted to a temporary
+directory and published only when complete. Resource-pack layering and full
+modded client rendering are outside this API's current contract.
+
+## Texture resolution and atlas limits
+
+Atlases retain original texture pixels and rectangular crops; HD textures are
+no longer reduced to 16×16. Edge padding protects UV boundaries. Tall static
+textures remain intact; animated block/item textures use the first frame
+specified by `.png.mcmeta`, including explicit frame dimensions.
+
+The default atlas side limit is 2048 pixels. If images cannot fit, export fails
+before allocating an oversized atlas or replacing the existing output. Set
+`max_atlas_size` on hero/geometry APIs or `--max-atlas-size 4096` in the CLI for
+a larger pack. There is no silent downsampling. Texture decoding additionally
+rejects images above 16,000,000 pixels. These limits do not bound all process
+memory; multi-page atlases remain a separate extension.
 
 ## Shared geometry
 

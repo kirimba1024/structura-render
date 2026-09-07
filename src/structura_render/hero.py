@@ -9,7 +9,7 @@ from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .camera import framing_distance, orthographic_scale
 from .export_io import write_image
-from .geometry import DEFAULT_MAX_VOXELS
+from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
 from .projections import DEFAULT_MAX_PIXELS, _check_pixels
 
 
@@ -20,7 +20,7 @@ class PlottingUnavailableError(RuntimeError):
 def render_hero(source, output=None, *, window=1600, azimuth=35.0, elevation=35.0,
                 zoom=1.0, color_mode="family", no_textures=False, texture_bank=None,
                 transparent=False, orthographic=False, max_pixels=DEFAULT_MAX_PIXELS,
-                max_voxels=DEFAULT_MAX_VOXELS):
+                max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
     """Return a Pillow image from a path or Structure; optionally save it atomically."""
     if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
         raise ValueError("window must be a positive integer")
@@ -47,7 +47,7 @@ def render_hero(source, output=None, *, window=1600, azimuth=35.0, elevation=35.
         if not bank.available():
             raise ValueError(MISSING_ASSETS_MESSAGE)
         textured_meshes, flat_entities, textured_indices, _ = build_textured_meshes(
-            src, solid, state, index_names, index_props, bank,
+            src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
         )
     if not solid.any() and not textured_meshes and not flat_entities:
         raise ValueError("structure produced no visible geometry")
@@ -125,6 +125,7 @@ def main(argv=None):
     parser.add_argument("--orthographic", action="store_true", help="parallel projection without perspective")
     parser.add_argument("--max-pixels", type=int, default=DEFAULT_MAX_PIXELS)
     parser.add_argument("--max-voxels", type=int, default=DEFAULT_MAX_VOXELS)
+    parser.add_argument("--max-atlas-size", type=int, default=DEFAULT_MAX_ATLAS_SIZE, help="maximum texture atlas side in pixels")
     parser.add_argument("--allow-skip", action="store_true", help="succeed without an image if plotting is unavailable")
     args = parser.parse_args(argv)
     from .legacy_input import load_structure
@@ -135,7 +136,7 @@ def main(argv=None):
                     elevation=args.elevation, zoom=args.zoom, color_mode=args.color_mode,
                     no_textures=args.no_textures, transparent=args.transparent,
                     orthographic=args.orthographic, max_pixels=args.max_pixels,
-                    max_voxels=args.max_voxels)
+                    max_voxels=args.max_voxels, max_atlas_size=args.max_atlas_size)
     except PlottingUnavailableError as error:
         if args.allow_skip:
             print(f"hero render skipped: {error}")

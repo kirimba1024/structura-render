@@ -1,10 +1,10 @@
 import json
 import math
-from functools import lru_cache, partial
+from functools import partial
 
 from PIL import Image
 
-from .assets import ASSETS, DATA
+from .assets import context_cached, current_context
 from .entity_models import model_parts
 from .entity_shapes import HALF_TURN_X, QUARTER_TURN_X, after, box, unwrap
 from .item_models import item_id, item_texture, stack_texture
@@ -61,11 +61,12 @@ def facing_of(nbt):
     return "south"
 
 
-@lru_cache(maxsize=None)
+@context_cached
 def painting_size(variant):
-    if DATA is None:
+    data_root = current_context().data
+    if data_root is None:
         return None
-    path = DATA / "painting_variant" / f"{variant}.json"
+    path = data_root / "painting_variant" / f"{variant}.json"
     if not path.is_file():
         return None
     try:
@@ -73,7 +74,7 @@ def painting_size(variant):
     except (OSError, json.JSONDecodeError):
         return None
     asset = _plain(entry.get("asset_id", variant))
-    if not (ASSETS / "textures" / "painting" / f"{asset}.png").is_file():
+    if not (current_context().path("textures/painting", asset, ".png")).is_file():
         return None
     return int(entry.get("width", 1)), int(entry.get("height", 1)), asset
 
@@ -174,10 +175,10 @@ def item_frame_parts(nbt, glowing):
 
 def _asset(*stems):
     return next((stem for stem in stems
-                 if (ASSETS / "textures" / f"{stem}.png").is_file()), stems[0])
+                 if (current_context().path("textures", stem, ".png")).is_file()), stems[0])
 
 
-@lru_cache(maxsize=None)
+@context_cached
 def _opaque_texture_tiles(path):
     try:
         with Image.open(path) as source:
@@ -229,7 +230,7 @@ RIG_HEAD_PARTS = {
 
 
 def _safe_texture_crop(texture, *, accent=False):
-    tiles = _opaque_texture_tiles(ASSETS / "textures" / f"{texture}.png")
+    tiles = _opaque_texture_tiles(current_context().path("textures", texture, ".png"))
     if not tiles:
         return None
     return tiles[1 if accent and len(tiles) > 1 else 0]

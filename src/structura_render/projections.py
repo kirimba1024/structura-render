@@ -13,6 +13,7 @@ from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .export_io import write_image
 from .legacy_input import load_structure
+from .overlays import ProjectionOverlays, draw_overlays, load_overlays
 
 VIEWS = {
     "top": (1, True), "bottom": (1, False),
@@ -174,7 +175,7 @@ def _projection_size(size, view, scale):
 
 
 def render_projection(source, *, view="top", scale=16, color_mode="family",
-                      transparent=False, max_pixels=DEFAULT_MAX_PIXELS):
+                      transparent=False, max_pixels=DEFAULT_MAX_PIXELS, overlays=None):
     """Return one unframed Pillow image from a path or in-memory Structure."""
     if color_mode not in {"family", "block"}:
         raise ValueError("color_mode must be 'family' or 'block'")
@@ -203,11 +204,15 @@ def render_projection(source, *, view="top", scale=16, color_mode="family",
         canvas[present, :3] = colors[visible[present]]
         if transparent:
             canvas[present, 3] = 255
+    if overlays is not None:
+        if not isinstance(overlays, ProjectionOverlays):
+            raise ValueError("overlays must be ProjectionOverlays")
+        canvas = draw_overlays(canvas, overlays, view, src.size, axis, orient)
     return Image.fromarray(canvas).resize(size, Image.Resampling.NEAREST)
 
 
 def render_projections(source, output=None, *, views=tuple(VIEWS), scale=16,
-                       color_mode="family", max_pixels=DEFAULT_MAX_PIXELS):
+                       color_mode="family", max_pixels=DEFAULT_MAX_PIXELS, overlays=None):
     """Return a sheet of named projections; optionally save it atomically."""
     src = load_structure(source)
     views = tuple(views)
@@ -216,7 +221,7 @@ def render_projections(source, output=None, *, views=tuple(VIEWS), scale=16,
     _check_pixels(size, max_pixels)
     panels = [
         panel(np.asarray(render_projection(src, view=view, scale=1, color_mode=color_mode,
-                                           max_pixels=max_pixels)), view, scale)
+                                           max_pixels=max_pixels, overlays=overlays)), view, scale)
         for view in views
     ]
     return compose(panels, output)
@@ -229,6 +234,8 @@ def main(argv=None):
     parser.add_argument("--region", help="one named Litematic region")
     parser.add_argument("--max-blocks", type=int, default=DEFAULT_MAX_BLOCKS)
     parser.add_argument("--max-pixels", type=int, default=DEFAULT_MAX_PIXELS)
+    parser.add_argument("--ground-y", type=int, help="local building level, drawn as a dashed line")
+    parser.add_argument("--overlays", type=Path, help="NPZ with boolean envelope/aura/cavern_aura arrays")
     parser.add_argument("--scale", type=int, default=16, help="pixels per block")
     parser.add_argument("--color-mode", choices=("family", "block"), default="family")
     parser.add_argument(
@@ -244,8 +251,10 @@ def main(argv=None):
     output = Path(args.output)
     try:
         structure = load_structure(args.src, region=args.region, max_blocks=args.max_blocks)
+        overlays = (load_overlays(args.overlays, structure.size, max_blocks=args.max_blocks, ground_y=args.ground_y)
+                    if args.overlays is not None else ProjectionOverlays(ground_y=args.ground_y))
         render_projections(structure, output, views=args.views, scale=args.scale,
-                           color_mode=args.color_mode, max_pixels=args.max_pixels)
+                           color_mode=args.color_mode, max_pixels=args.max_pixels, overlays=overlays)
     except (ValueError, OSError) as error:
         parser.error(str(error))
     print(output)

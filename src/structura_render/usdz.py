@@ -12,7 +12,7 @@ from PIL import Image
 from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .camera import framing_distance
-from .geometry import DEFAULT_MAX_VOXELS
+from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
 
 # Match the image renderer's default orientation, fitting the camera's aperture.
 CAMERA_AZIMUTH = 35.0
@@ -216,6 +216,7 @@ def main(argv=None):
     parser.add_argument("--region", help="one named Litematic region")
     parser.add_argument("--max-blocks", type=int, default=DEFAULT_MAX_BLOCKS)
     parser.add_argument("--max-voxels", type=int, default=DEFAULT_MAX_VOXELS)
+    parser.add_argument("--max-atlas-size", type=int, default=DEFAULT_MAX_ATLAS_SIZE, help="maximum texture atlas side in pixels")
     parser.add_argument(
         "--allow-flat-fallback", action="store_true",
         help="use coloured cubes when Minecraft assets are unavailable",
@@ -239,7 +240,7 @@ def main(argv=None):
 
     bank = texture_bank_or_exit(args.allow_flat_fallback)
     meshes, flat_entities, textured_indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=args.max_atlas_size,
     )
     if not solid.any() and not meshes and not flat_entities:
         raise SystemExit("structure produced no visible geometry")

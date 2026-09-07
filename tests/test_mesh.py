@@ -1,8 +1,13 @@
 import numpy as np
 from PIL import Image
 
-from structura_render.mesh import Atlas, MAX_ATLAS_SIZE, upscale_atlas, uv_points_for_rect
-from structura_render.textures import TextureBank, WATER_ALPHA
+from structura_render.mesh import (
+    MAX_ATLAS_SIZE,
+    Atlas,
+    upscale_atlas,
+    uv_points_for_rect,
+)
+from structura_render.textures import WATER_ALPHA, TextureBank
 
 
 def test_atlas_deduplicates_equal_pixels_from_distinct_images():
@@ -39,3 +44,27 @@ def test_water_stays_visible_against_a_light_preview_background(monkeypatch):
     image = bank.resolve("minecraft:water")["all"]
 
     assert np.asarray(image)[..., 3].min() == WATER_ALPHA
+
+
+def test_atlas_preserves_hd_pixels_rectangular_images_and_padding():
+    atlas = Atlas()
+    pixels = np.arange(64 * 32 * 4, dtype=np.uint8).reshape(32, 64, 4)
+    atlas.add(Image.fromarray(pixels))
+    atlas.add(Image.new('RGBA', (8, 24), (11, 22, 33, 44)))
+    image, rects = atlas.build(max_size=128)
+    for original, (u0, u1, v0, v1) in zip(atlas.images, rects):
+        x0, x1 = round(u0 * image.shape[1]), round(u1 * image.shape[1])
+        y0, y1 = round((1 - v1) * image.shape[0]), round((1 - v0) * image.shape[0])
+        np.testing.assert_array_equal(image[y0:y1, x0:x1], original)
+        np.testing.assert_array_equal(image[y0 - 1, x0:x1], np.asarray(original)[0])
+
+
+def test_atlas_overflow_rejected_before_output_allocation(monkeypatch):
+    import pytest
+    atlas = Atlas()
+    atlas.add(Image.new('RGBA', (128, 128)))
+    def forbidden(*args, **kwargs):
+        raise AssertionError('oversized allocation')
+    monkeypatch.setattr(np, 'zeros', forbidden)
+    with pytest.raises(ValueError, match='max_atlas_size'):
+        atlas.build(max_size=128)

@@ -5,9 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from .assets import ASSETS
+from .assets import context_cached, current_context
 from .entity_shapes import box
-
 
 _DIRECT_LAYERS = frozenset("""
 allay armadillo axolotl bat bee blaze bogged breeze camel cat cave_spider chicken cod
@@ -128,10 +127,10 @@ def _quads(node, parent=IDENTITY):
         yield from _quads(child, matrix)
 
 
-@lru_cache(maxsize=None)
+@context_cached
 def _texture_image(texture):
     try:
-        with Image.open(ASSETS / "textures" / f"{texture}.png") as source:
+        with Image.open(current_context().path("textures", texture, ".png")) as source:
             return source.convert("RGBA")
     except OSError:
         return None

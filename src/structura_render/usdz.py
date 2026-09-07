@@ -2,14 +2,12 @@
 """Export a Structure NBT to textured USDZ, viewable natively via macOS
 Quick Look (press space on the file in Finder) -- reuses render_hero.py's
 own textured-mesh builder so the same blocks/shapes are covered."""
-import argparse
 import os
 import tempfile
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .camera import framing_distance
 from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
@@ -209,22 +207,9 @@ def package_usdz(source, output):
     return output
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("src")
-    parser.add_argument("output")
-    parser.add_argument("--region", help="one named Litematic region")
-    parser.add_argument("--max-blocks", type=int, default=DEFAULT_MAX_BLOCKS)
-    parser.add_argument("--max-voxels", type=int, default=DEFAULT_MAX_VOXELS)
-    parser.add_argument("--max-atlas-size", type=int, default=DEFAULT_MAX_ATLAS_SIZE, help="maximum texture atlas side in pixels")
-    parser.add_argument(
-        "--allow-flat-fallback", action="store_true",
-        help="use coloured cubes when Minecraft assets are unavailable",
-    )
-    args = parser.parse_args(argv)
+def export_usdz(src, output, bank, *, max_voxels=DEFAULT_MAX_VOXELS, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE):
     from pxr import Sdf, Usd, UsdGeom
 
-    from .legacy_input import load_structure
     from .mesh import (
         build_textured_geometry,
         flat_rgba,
@@ -233,17 +218,14 @@ def main(argv=None):
         upscale_atlas,
         voxel_state,
     )
-    from .textures import texture_bank_or_exit
 
-    src = load_structure(args.src, region=args.region, max_blocks=args.max_blocks)
-    state, solid, index_names, index_props = voxel_state(src, max_voxels=args.max_voxels)
+    state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
 
-    bank = texture_bank_or_exit(args.allow_flat_fallback)
     meshes, flat_entities, textured_indices, occluder = build_textured_geometry(
-        src, solid, state, index_names, index_props, bank, max_atlas_size=args.max_atlas_size,
+        src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size,
     )
     if not solid.any() and not meshes and not flat_entities:
-        raise SystemExit("structure produced no visible geometry")
+        raise ValueError("structure produced no visible geometry")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -302,18 +284,14 @@ def main(argv=None):
             raise ValueError("structure produced no visible geometry")
         stage.GetRootLayer().Save()
 
-        out_path = Path(args.output).resolve()
-        try:
-            package_usdz(usda_path, out_path)
-        except RuntimeError as error:
-            raise SystemExit(str(error)) from error
+        result = package_usdz(usda_path, output)
+    return result
 
-    total_points = (
-        sum(len(m.points) for m in meshes)
-        + sum(len(p) for p, *_ in flat_entities)
-        + flat_point_count
-    )
-    print(f"{args.output} points={total_points} source_entities={len(src.entities)}")
+
+def main(argv=None):
+    from .export import export_cli
+
+    export_cli("usdz", argv)
 
 
 if __name__ == "__main__":

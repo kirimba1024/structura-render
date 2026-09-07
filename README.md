@@ -116,6 +116,71 @@ Default guards are 16,000,000 output pixels (`max_pixels` / `--max-pixels`),
 raise these limits; choosing `--region` avoids allocating the empty space
 between distant regions. These guards are not a bound on total process memory.
 
+## Python 3D export
+
+```python
+from structura_render import AssetContext, TextureBank, export_structure
+
+bank = TextureBank(AssetContext("/path/to/assets/minecraft"))
+output = export_structure("house.litematic", "house.glb", texture_bank=bank)
+export_structure(structure, "house.usdz", texture_bank=bank)
+```
+
+`export_structure` accepts a path or an in-memory `structura_core.Structure`.
+The output extension selects `.glb`, `.gltf`, `.obj`, `.stl` or `.usdz`; the
+return value is the absolute `pathlib.Path` of the main file. Install only the
+corresponding extra. Without a bank, resource discovery follows the same rules
+as the CLI. A supplied bank is reused, including its isolated caches.
+
+Optional keywords are `region`, `allow_flat_fallback`, `max_blocks`,
+`max_voxels` and `max_atlas_size`. Inputs are not edited, and a failed export
+preserves an existing destination. Missing assets raise `ValueError`; a missing
+backend raises `ModuleNotFoundError` with the matching install command.
+The existing 3D commands now call the same API and print the output path.
+
+## Installation diagnostics
+
+```bash
+structura-render doctor
+structura-render doctor --json
+structura-render doctor --assets /path/to/client.jar --render-test
+```
+
+Ordinary diagnostics inspect distribution metadata, resource layout and cache
+permissions. They do not import graphics backends, extract jars, create caches
+or download anything. `dependencies_present` means the required distributions
+are installed; it does not certify their imports or version compatibility.
+The Minecraft version comes from the client's `version.json` when available,
+and otherwise remains unknown. Layout checks do not validate every resource.
+
+`--render-test` separately creates a small offscreen image in a child process
+with a 30-second timeout. This protects the diagnostic process from a graphics
+backend crash. Failed explicit graphics tests return exit code 1; ordinary
+reports return 0 even when an optional format is unavailable. JSON includes
+`schema_version`, package versions, resource/cache details, per-output status
+and the graphics test result.
+
+## Compact examples and showcase
+
+```bash
+structura-render examples ./examples
+structura-render projections examples/demo.nbt demo.png
+structura-render examples ./examples --showcase
+```
+
+The authored demo is a small house for Java 1.21.1. The optional showcase adds
+all 1,195 non-air block IDs in the 26.2 reference and all 162 entity IDs handled
+by this renderer, with labeled signs, banners, paintings, frames and equipment.
+Use 26.2 client resources for these catalogs. They cover representative block
+states and selected cases, not every property or dynamic entity variant.
+Technical/legacy entity fixtures and deliberately invisible blocks are included.
+Catalog membership is a way to inspect coverage, not a claim of exact rendering.
+
+The three compressed inputs total about 48 KiB. `coverage.json` records counts
+and hashes. No PNG, 3D output or Minecraft resource files are bundled; create
+outputs when needed. Repeating the copy is safe, and modified files are never
+overwritten. The accompanying README explains the inputs and regeneration tools.
+
 ## Diagnostic overlays
 
 Pass ready boolean masks in the structure's local X/Y/Z coordinates:

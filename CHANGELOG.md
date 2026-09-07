@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0
+
+- Add `export_structure(source, output, ...)` for GLB/glTF/OBJ/STL/USDZ from
+  paths or in-memory Structure objects. Reuse a supplied TextureBank and
+  keep optional backend imports lazy. Return the absolute output Path.
+- Route existing 3D commands through the same API and shared argument parser;
+  keep the existing low-level writers. CLI success output is the model path.
+- Add `structura-render doctor` with human-readable/JSON diagnostics for
+  package metadata, resource layout, Minecraft version and cache permissions.
+  Ordinary checks do not extract jars or import graphics backends. Optional
+  `--render-test` uses a child process with a 30-second timeout.
+- Separate resource discovery from jar extraction, preserving existing lookup order.
+- Add `structura-render examples [directory] [--showcase]`: a small authored
+  demo and catalogs of 1,195 block IDs / 162 handled entity types, approximately
+  48 KiB of compressed NBT. Include coverage metadata and avoid overwriting
+  modified files. Client assets and generated renders are not bundled.
+
 ## 0.5.1
 
 - Reject `.` and `..` resource namespaces before filesystem resolution,

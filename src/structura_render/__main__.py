@@ -5,7 +5,7 @@ import importlib
 
 FORMATS = {
     "projections": "projections", "png": "hero", "gltf": "gltf",
-    "glb": "gltf", "obj": "obj", "stl": "stl", "usdz": "usdz",
+    "glb": "gltf", "obj": "obj", "stl": "stl", "usdz": "usdz", "doctor": "doctor", "examples": "examples",
 }
 
 

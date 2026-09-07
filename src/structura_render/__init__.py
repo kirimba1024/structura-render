@@ -1,7 +1,7 @@
 """Minecraft Structure NBT renderers and reusable mesh construction."""
 
-__all__ = ["ProjectionOverlays", "AssetContext", "TextureBank", "tint_for", "render_projection", "render_projections", "render_hero"]
-__version__ = "0.5.1"
+__all__ = ["ProjectionOverlays", "AssetContext", "TextureBank", "tint_for", "render_projection", "render_projections", "render_hero", "export_structure"]
+__version__ = "0.6.0"
 
 
 def __getattr__(name):
@@ -13,5 +13,6 @@ def __getattr__(name):
         "ProjectionOverlays": "overlays", "AssetContext": "assets", "TextureBank": "textures", "tint_for": "textures",
         "render_projection": "projections", "render_projections": "projections",
         "render_hero": "hero",
+        "export_structure": "export",
     }[name]
     return getattr(import_module(f".{module}", __name__), name)

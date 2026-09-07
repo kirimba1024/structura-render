@@ -1,0 +1,53 @@
+{
+  "catalog_minecraft_version": "26.2",
+  "catalog_data_version": 4903,
+  "catalog_kind": "render test fixtures, including legacy aliases and technical entity markers",
+  "excluded_blocks": [
+    "minecraft:air",
+    "minecraft:cave_air",
+    "minecraft:void_air"
+  ],
+  "blockstate_files_in_reference": 1198,
+  "entity_types": 162,
+  "files": {
+    "demo.nbt": {
+      "bytes": 1858,
+      "sha256": "487718fa0e2223c2ea510ba3c80538a55b66c0718cf328389c52a7bc18a06380",
+      "size": [
+        15,
+        10,
+        13
+      ],
+      "blocks": 427,
+      "states": 17,
+      "block_ids": 15,
+      "entities": 0
+    },
+    "blocks.nbt": {
+      "bytes": 13775,
+      "sha256": "1286db469d2d2cd4cfe59be389e47a97dd6c5282f62ea503536264ba02484534",
+      "size": [
+        96,
+        2,
+        114
+      ],
+      "blocks": 1208,
+      "states": 1208,
+      "block_ids": 1195,
+      "entities": 0
+    },
+    "entities.nbt": {
+      "bytes": 33842,
+      "sha256": "52a2691bf7b54be178749535e24a11ef8131a509e268227a4d71c863c8ccf4c6",
+      "size": [
+        64,
+        26,
+        76
+      ],
+      "blocks": 8328,
+      "states": 50,
+      "block_ids": 48,
+      "entities": 219
+    }
+  }
+}

@@ -90,34 +90,37 @@ def _installed_client_jar():
     return None
 
 
-def minecraft_assets_root() -> Path:
+def minecraft_assets_source() -> Path:
     configured = os.environ.get("STRUCTURA_MINECRAFT_ASSETS")
     if configured:
-        path = Path(configured).expanduser().resolve()
-        if path.is_dir():
-            _warn_if_version_mismatch(path)
-            return path
-        if path.is_file() and path.suffix == ".jar":
-            extracted = _extract_jar_assets(path)
-            _warn_if_version_mismatch(extracted)
-            return extracted
-        raise FileNotFoundError(
-            f"STRUCTURA_MINECRAFT_ASSETS does not exist: {path} "
-            "(point it at an assets/minecraft directory or a client .jar)",
-        )
+        return Path(configured).expanduser().resolve()
 
     candidates = [Path.cwd(), *Path(__file__).resolve().parents]
     for root in candidates:
         path = root / "assets" / "minecraft"
         if path.is_dir():
-            _warn_if_version_mismatch(path)
             return path
     client_jar = _installed_client_jar()
     if client_jar is not None:
-        extracted = _extract_jar_assets(client_jar)
+        return client_jar
+    return Path.cwd() / "assets" / "minecraft"
+
+
+def minecraft_assets_root() -> Path:
+    path = minecraft_assets_source()
+    if path.is_dir():
+        _warn_if_version_mismatch(path)
+        return path
+    if path.is_file() and path.suffix == ".jar":
+        extracted = _extract_jar_assets(path)
         _warn_if_version_mismatch(extracted)
         return extracted
-    return Path.cwd() / "assets" / "minecraft"
+    if os.environ.get("STRUCTURA_MINECRAFT_ASSETS"):
+        raise FileNotFoundError(
+            f"STRUCTURA_MINECRAFT_ASSETS does not exist: {path} "
+            "(point it at an assets/minecraft directory or a client .jar)",
+        )
+    return path
 
 
 def _pack_data_root(assets_root):

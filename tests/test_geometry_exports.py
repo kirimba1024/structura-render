@@ -13,6 +13,7 @@ from structura_core import Structure, export_litematic, save_structure
 from structura_core.export_schematic import export_schematic
 
 from structura_render import block_model, textures
+from structura_render import AssetContext, export_structure
 from structura_render.export_io import write_gltf, write_obj
 from structura_render.mesh import (
     build_textured_geometry,
@@ -68,6 +69,68 @@ def structure(*names):
 def meshes_for(src, bank):
     state, solid, names, props = voxel_state(src)
     return build_textured_meshes(src, solid, state, names, props, bank)[0]
+
+
+@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
+def test_python_export_matches_cli_and_preserves_source(tmp_path, assets, format_name):
+    src = structure('stone', 'cutout', 'translucent')
+    src.data_version = 3955
+    source_path = tmp_path / 'source.nbt'
+    save_structure(src, source_path, src.size)
+    source = Structure(source_path)
+    before = source._root.to_snbt()
+    api_output = export_structure(source, tmp_path / f'api.{format_name}', texture_bank=assets)
+    path_output = export_structure(source_path, tmp_path / f'path.{format_name}', texture_bank=assets)
+    cli_output = tmp_path / f'cli.{format_name}'
+    result = subprocess.run([sys.executable, '-m', 'structura_render', format_name, str(source_path), str(cli_output)],
+                            capture_output=True, text=True, check=True,
+                            env={**os.environ, 'STRUCTURA_MINECRAFT_ASSETS': str(assets.context.root)})
+    assert str(cli_output) in result.stdout
+    assert api_output == (tmp_path / f'api.{format_name}').resolve()
+    assert source._root.to_snbt() == before
+    if format_name == 'usdz':
+        from pxr import Usd, UsdGeom
+
+        def geometry(path):
+            stage = Usd.Stage.Open(str(path))
+            meshes = [UsdGeom.Mesh(prim) for prim in stage.Traverse() if prim.GetTypeName() == 'Mesh']
+            return [(list(mesh.GetPointsAttr().Get()), list(mesh.GetFaceVertexIndicesAttr().Get())) for mesh in meshes]
+
+        assert geometry(api_output) == geometry(path_output) == geometry(cli_output)
+    else:
+        scenes = [trimesh.load(path, force='scene') for path in (api_output, path_output, cli_output)]
+        assert [sum(len(mesh.faces) for mesh in scene.geometry.values()) for scene in scenes] == [36] * 3
+        for scene in scenes[1:]:
+            np.testing.assert_array_equal(scenes[0].bounds, scene.bounds)
+
+
+@pytest.mark.parametrize('format_name', ['glb', 'gltf', 'obj', 'stl', 'usdz'])
+def test_python_export_atlas_failure_preserves_existing_file(tmp_path, assets, format_name):
+    src = structure('stone')
+    src.data_version = 3955
+    source_path = tmp_path / 'source.nbt'
+    save_structure(src, source_path, src.size)
+    output = tmp_path / f'existing.{format_name}'
+    output.write_bytes(b'previous output')
+    with pytest.raises(ValueError, match='atlas'):
+        export_structure(Structure(source_path), output, texture_bank=assets, max_atlas_size=8)
+    assert output.read_bytes() == b'previous output'
+
+
+def test_python_export_invalid_output_never_loads_source(tmp_path):
+    with pytest.raises(ValueError, match='output must end'):
+        export_structure('missing.nbt', tmp_path / 'output.png')
+
+
+def test_python_export_missing_resources_raises_valueerror_not_systemexit(tmp_path, assets):
+    src = structure('stone')
+    src.data_version = 3955
+    path = tmp_path / 'source.nbt'
+    save_structure(src, path, src.size)
+    bank = textures.TextureBank(AssetContext(tmp_path / 'missing'))
+    with pytest.raises(ValueError, match='Minecraft assets'):
+        export_structure(path, tmp_path / 'out.glb', texture_bank=bank)
+    assert export_structure(path, tmp_path / 'out.glb', texture_bank=bank, allow_flat_fallback=True).is_file()
 
 
 @pytest.mark.parametrize("textured", [False, True])

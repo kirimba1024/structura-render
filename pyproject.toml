@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.5.1"
+version = "0.6.0"
 description = "Minecraft block-model resolution, image rendering and 3D export (USDZ/glTF/OBJ/STL)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -37,7 +37,7 @@ structura-build-opaque-blocks = "structura_render.build_opaque_blocks:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-structura_render = ["data/*.json"]
+structura_render = ["data/*.json", "data/examples/*"]
 
 [project.urls]
 Repository = "https://github.com/kirimba1024/structura-render"

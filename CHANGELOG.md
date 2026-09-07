@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+- Accept native `.litematic` input in every output, with `--region` and
+  `--max-blocks`; require structura-core 0.3.0.
+- Store shared geometry as NumPy buffers. OBJ, STL, glTF/GLB and USDZ no longer
+  install or import PyVista/VTK. PNG still uses `[hero]`; applications rendering
+  PNG and USDZ should install `[hero,usdz]`. Existing mesh adapters remain.
+- Add `render_projection`, `render_projections` and `render_hero` Python APIs
+  accepting paths or Structures and returning Pillow images.
+- Compute plain projection visibility without dense 3D arrays. Add configurable
+  output-pixel and 3D-volume guards before allocation.
+- Add transparent images and orthographic cameras; handle vertical camera
+  directions, close plotting resources on failures and publish images atomically.
+- Add `structura-render` and `python -m structura_render` format dispatch while
+  preserving all existing commands and their help without graphics backends.
+- Verify Litematic-to-model exports with plotting imports blocked; retain
+  regression checks for outward STL faces, UVs and alpha materials.
+
 ## 0.3.2
 
 - Isolate trimesh from PNG/USDZ imports. All five 3D commands support `--help`

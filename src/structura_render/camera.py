@@ -11,3 +11,11 @@ def framing_distance(size, vertical_fov, aspect=1.0, margin=1.05):
     half_vertical = math.radians(vertical_fov) / 2
     half_horizontal = math.atan(math.tan(half_vertical) * aspect)
     return max(radius, 0.001) * margin / math.sin(min(half_vertical, half_horizontal))
+
+
+def orthographic_scale(size, aspect=1.0, margin=1.05):
+    """Return the vertical half-span fitting the bounding sphere in both axes."""
+    if not math.isfinite(aspect) or aspect <= 0 or not math.isfinite(margin) or margin < 1:
+        raise ValueError("camera needs a positive aspect and margin >= 1")
+    radius = math.sqrt(sum(value * value for value in size)) / 2
+    return max(radius, 0.001) * margin / min(aspect, 1.0)

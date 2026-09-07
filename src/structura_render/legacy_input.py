@@ -1,15 +1,10 @@
-"""Accept legacy schematic formats wherever a Structure NBT path is expected.
-
-Delegates the actual format detection and legacy-block translation to
-structura_core.convert_legacy (amulet-core underneath), which already
-handles .schematic and Sponge .schem. Other Amulet input formats are not
-verified here. Only imported lazily, so plain .nbt input never
-needs amulet-core installed.
-"""
+"""Native NBT/Litematic input, with optional translation of legacy schematics."""
 import tempfile
 from pathlib import Path
 
-from structura_core import Structure
+from structura_core import Structure, save_structure
+from structura_core import load_structure as load_native
+from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 NATIVE_SUFFIXES = {".nbt"}
 
@@ -40,11 +35,24 @@ def as_structure_nbt(path):
     if path.suffix.lower() in NATIVE_SUFFIXES:
         return path
     directory = tempfile.mkdtemp(prefix="structura-render-legacy-")
+    if path.suffix.lower() == ".litematic":
+        src = load_native(path)
+        output = Path(directory) / f"{path.stem}.nbt"
+        save_structure(src, output, src.size)
+        return output
     return _convert(path, directory)
 
 
-def load_structure(path):
+def load_structure(path, *, region=None, max_blocks=DEFAULT_MAX_BLOCKS):
+    if isinstance(path, Structure):
+        if region is not None:
+            raise ValueError("region applies only to Litematic files")
+        return path
     path = Path(path)
+    if path.suffix.lower() == ".litematic":
+        return load_native(path, region=region, max_blocks=max_blocks)
+    if region is not None:
+        raise ValueError("region applies only to Litematic files")
     if path.suffix.lower() in NATIVE_SUFFIXES:
         return Structure(path)
     with tempfile.TemporaryDirectory(prefix="structura-render-legacy-") as directory:

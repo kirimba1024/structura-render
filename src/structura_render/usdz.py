@@ -9,8 +9,10 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
 from .camera import framing_distance
+from .geometry import DEFAULT_MAX_VOXELS
 
 # Match the image renderer's default orientation, fitting the camera's aperture.
 CAMERA_AZIMUTH = 35.0
@@ -207,29 +209,36 @@ def package_usdz(source, output):
     return output
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("src")
     parser.add_argument("output")
+    parser.add_argument("--region", help="one named Litematic region")
+    parser.add_argument("--max-blocks", type=int, default=DEFAULT_MAX_BLOCKS)
+    parser.add_argument("--max-voxels", type=int, default=DEFAULT_MAX_VOXELS)
     parser.add_argument(
         "--allow-flat-fallback", action="store_true",
         help="use coloured cubes when Minecraft assets are unavailable",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     from pxr import Sdf, Usd, UsdGeom
 
     from .legacy_input import load_structure
     from .mesh import (
-        build_textured_meshes, flat_rgba, mask_surface, material_groups,
-        upscale_atlas, voxel_state,
+        build_textured_geometry,
+        flat_rgba,
+        mask_surface,
+        material_groups,
+        upscale_atlas,
+        voxel_state,
     )
     from .textures import texture_bank_or_exit
 
-    src = load_structure(args.src)
-    state, solid, index_names, index_props = voxel_state(src)
+    src = load_structure(args.src, region=args.region, max_blocks=args.max_blocks)
+    state, solid, index_names, index_props = voxel_state(src, max_voxels=args.max_voxels)
 
     bank = texture_bank_or_exit(args.allow_flat_fallback)
-    meshes, flat_entities, textured_indices, occluder = build_textured_meshes(
+    meshes, flat_entities, textured_indices, occluder = build_textured_geometry(
         src, solid, state, index_names, index_props, bank,
     )
     if not solid.any() and not meshes and not flat_entities:
@@ -247,11 +256,11 @@ def main():
         center = np.asarray(src.size, dtype=np.float32) / 2.0
         add_framing_camera(stage, root, src.size)
 
-        for mesh_index, (mesh_obj, texture) in enumerate(meshes):
+        for mesh_index, mesh_obj in enumerate(meshes):
             texture_path = tmp / f"atlas{mesh_index}.png"
-            atlas_image = upscale_atlas(Image.fromarray(texture.to_array()))
+            atlas_image = upscale_atlas(Image.fromarray(mesh_obj.image))
             atlas_image.save(texture_path)
-            for mode, points, quads, uv in material_groups(mesh_obj, texture):
+            for mode, points, quads, uv in material_groups(mesh_obj):
                 name = f"Blocks{mesh_index}_{mode}"
                 material = build_material(
                     stage, root, texture_path.name, name=f"{name}Material", alpha_mode=mode,
@@ -288,6 +297,8 @@ def main():
             )
             add_flat_mesh(stage, root, f"Flat{index}", points, faces, flat_material, center)
 
+        if not meshes and not flat_entities and not flat_point_count:
+            raise ValueError("structure produced no visible geometry")
         stage.GetRootLayer().Save()
 
         out_path = Path(args.output).resolve()
@@ -297,7 +308,7 @@ def main():
             raise SystemExit(str(error)) from error
 
     total_points = (
-        sum(len(m.points) for m, _ in meshes)
+        sum(len(m.points) for m in meshes)
         + sum(len(p) for p, *_ in flat_entities)
         + flat_point_count
     )

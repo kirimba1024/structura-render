@@ -25,6 +25,20 @@ def atomic_write(path, data):
             temporary.unlink(missing_ok=True)
 
 
+def write_image(image, output):
+    """Encode an image completely before replacing its destination."""
+    from PIL import Image
+
+    output = Path(output)
+    image_format = Image.registered_extensions().get(output.suffix.lower())
+    if image_format is None:
+        raise ValueError(f"unknown image output extension: {output.suffix!r}")
+    buffer = BytesIO()
+    image.save(buffer, format=image_format)
+    atomic_write(output, buffer.getvalue())
+    return output
+
+
 def nearest_samplers(tree):
     """Preserve pixel-art sampling in glTF instead of relying on viewer defaults."""
     samplers = tree.setdefault("samplers", [])

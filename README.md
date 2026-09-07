@@ -2,7 +2,7 @@
 
 **Minecraft structures, rendered like Minecraft.**
 
-Turn a Java Edition Structure NBT into a polished PNG or a portable 3D model.
+Turn a Java Edition Structure NBT or Litematic into a PNG or a portable 3D model.
 `structura-render` reads the blockstates, models and textures from your own
 Minecraft client, so stairs stay stairs, doors keep their state, glass keeps
 its alpha and every export agrees with the preview.
@@ -17,14 +17,14 @@ its alpha and every export agrees with the preview.
 Install only the output you need:
 
 ```bash
-pip install "structura-render[usdz]"
+pip install "structura-render[hero,usdz]"
 ```
 
 Render a showcase image and export the same geometry:
 
 ```bash
-structura-render-hero house.nbt house.png
-structura-export-usdz house.nbt house.usdz
+structura-render png house.litematic house.png --transparent --orthographic
+structura-render usdz house.litematic house.usdz
 ```
 
 For Minecraft 1.21.1, the standard launcher installation is detected
@@ -43,7 +43,7 @@ copied into the package or redistributed.
 | Result | Install | Command |
 |---|---|---|
 | Six-view technical PNG | base package | `structura-render-projections in.nbt out.png` |
-| Perspective PNG | `[hero]` | `structura-render-hero in.nbt out.png` |
+| Perspective / orthographic PNG | `[hero]` | `structura-render-hero in.nbt out.png` |
 | USDZ / Apple Quick Look | `[usdz]` | `structura-export-usdz in.nbt out.usdz` |
 | GLB or glTF | `[gltf]` | `structura-export-gltf in.nbt out.glb` |
 | Wavefront OBJ | `[obj]` | `structura-export-obj in.nbt out.obj` |
@@ -55,7 +55,7 @@ Extras can be combined:
 pip install "structura-render[hero,usdz,gltf,obj,stl]"
 ```
 
-Every command accepts `.nbt`. Legacy `.schematic` and Sponge `.schem` inputs
+Every command accepts `.nbt` and `.litematic` natively. Legacy `.schematic` and Sponge `.schem` inputs
 are available through the `legacy` extra:
 
 ```bash
@@ -65,16 +65,71 @@ structura-render-hero castle.schematic castle.png
 
 Preview conversion preserves the selection's bounds, authored air, block
 materials, connections and all entities. It does not apply datapack placement
-cleanup. Other Amulet input formats, including `.litematic`, are not currently
-verified by this library's conversion tests.
+cleanup. Litematic v5–v7 supports multiple disjoint regions, signed sizes and
+entity positions without requiring the `legacy` extra. Use `--region Main`
+to render one named region. Overlaps require an explicit region choice.
+Other Amulet input formats are not verified by the conversion tests.
 
 Texture-backed exporters fail clearly when client assets are unavailable,
 instead of silently producing a misleading result. For diagnostics only, the
 3D exporters can retain the old coloured-cube fallback with
 `--allow-flat-fallback`. Hero renders expose the same choice as `--no-textures`.
 
-The five 3D commands support `--help` without optional backends or Minecraft
-assets. PNG and USDZ do not require trimesh.
+The commands support `--help` without optional backends or Minecraft assets.
+PNG and USDZ do not require trimesh. OBJ, STL, glTF/GLB and USDZ do not install
+or import PyVista/VTK; only the `[hero]` extra needs a plotting backend.
+If an application previously installed `[usdz]` and also rendered PNGs, it
+should now request `[hero,usdz]` explicitly.
+
+The unified command and `python -m structura_render` accept `projections`,
+`png`, `glb`, `gltf`, `obj`, `stl` and `usdz`. Existing commands remain supported:
+
+```bash
+python -m structura_render glb house.litematic house.glb
+structura-render projections house.litematic views.png --views top north
+uvx --from 'structura-render[gltf]' structura-render glb house.litematic house.glb
+```
+
+## Python images
+
+```python
+from structura_core import load_structure
+from structura_render import render_hero, render_projection, render_projections
+
+structure = load_structure("house.litematic", region="Main")
+image = render_projection(structure, view="top", scale=8, transparent=True)
+image.save("top.png")
+render_projections(structure, "views.png", views=("top", "north"))
+render_hero(structure, "house.png", transparent=True, orthographic=True)
+```
+
+All three return a Pillow image. The sheet and hero functions optionally write
+an output atomically; the existing destination survives an encoding failure.
+Projection images need neither Minecraft textures nor a graphics backend.
+They show the nearest non-air block cell rather than textured model geometry.
+An explicit `structure_void` is invisible. Plain projections allocate memory
+according to image area, without constructing a dense 3D volume.
+
+Default guards are 16,000,000 output pixels (`max_pixels` / `--max-pixels`),
+16,000,000 cells in a 3D bounding box (`max_voxels` / `--max-voxels`) and
+2,000,000 decoded Litematic cells (`--max-blocks`). Larger trusted inputs can
+raise these limits; choosing `--region` avoids allocating the empty space
+between distant regions. These guards are not a bound on total process memory.
+
+## Shared geometry
+
+`geometry.TexturedMesh` contains NumPy points, quads, UV coordinates, per-face
+alpha modes and an RGBA atlas. `mesh.build_textured_geometry` produces these
+buffers once; file exporters consume them directly. `TexturedMesh.to_pyvista`
+adapts them for image rendering. The existing `build_textured_meshes` function
+retains its PyVista return values for callers using that interface.
+
+Format-specific materials and file writing stay in their exporters. There is
+no second scene graph, editing model, interactive viewer or plugin framework.
+New image and file formats can reuse the same geometry without importing a
+graphics engine.
+
+## Moving exports
 
 GLB and USDZ are single-file exports. For `.gltf` or `.obj`, keep the model
 together with its generated resources when moving or sharing it:

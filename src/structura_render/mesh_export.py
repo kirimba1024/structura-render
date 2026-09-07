@@ -4,13 +4,19 @@ import numpy as np
 import trimesh
 from PIL import Image
 
+from .geometry import TexturedMesh
 from .mesh import material_groups, triangulate_quads, upscale_atlas
 
 
 def export_parts(meshes, flat_groups, center):
     parts = []
-    for mesh_index, (mesh, texture) in enumerate(meshes):
-        image = upscale_atlas(Image.fromarray(texture.to_array()))
+    for mesh_index, item in enumerate(meshes):
+        if isinstance(item, TexturedMesh):
+            mesh, texture, pixels = item, None, item.image
+        else:
+            mesh, texture = item
+            pixels = texture.to_array()
+        image = upscale_atlas(Image.fromarray(pixels))
         for mode, points, quads, uv in material_groups(mesh, texture):
             options = {"alphaCutoff": 0.5} if mode == "MASK" else {}
             material = trimesh.visual.material.PBRMaterial(

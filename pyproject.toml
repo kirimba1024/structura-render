@@ -4,25 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.3.2"
+version = "0.4.0"
 description = "Minecraft block-model resolution, image rendering and 3D export (USDZ/glTF/OBJ/STL)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-  "structura-core>=0.2.3,<0.3",
+  "structura-core>=0.3.0,<0.4",
   "numpy>=1.26,<3",
   "Pillow>=11,<12",
 ]
 
 [project.optional-dependencies]
 hero = ["pyvista>=0.46,<0.47"]
-usdz = ["pyvista>=0.46,<0.47", "usd-core>=26,<27"]
-gltf = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
-obj = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
-stl = ["pyvista>=0.46,<0.47", "trimesh>=4.5,<5", "networkx>=3.2,<4"]
-legacy = ["structura-core[legacy]>=0.2.3,<0.3"]
+usdz = ["usd-core>=26,<27"]
+gltf = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]
+obj = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]
+stl = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]
+legacy = ["structura-core[legacy]>=0.3.0,<0.4"]
 
 [project.scripts]
+structura-render = "structura_render.__main__:main"
 structura-render-projections = "structura_render.projections:main"
 structura-render-hero = "structura_render.hero:main"
 structura-export-usdz = "structura_render.usdz:main"

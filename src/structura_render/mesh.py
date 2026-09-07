@@ -1,17 +1,17 @@
-"""Shared Minecraft block mesh construction for PNG and USDZ consumers."""
+"""Shared Minecraft block geometry for image and model exporters."""
 
 import hashlib
+import math
 
 import numpy as np
-import pyvista as pv
 from PIL import Image
-
 from structura_core import AIR_NAMES
 
 from .block_model import AXIS_VEC, FACE_CORNERS, block_elements, post_texture
 from .entities import structure_parts
 from .entity_shapes import entity_decoration, entity_shape, nbt_sensitive, nbt_signature
 from .full_cube import is_occluder as shape_is_occluder
+from .geometry import DEFAULT_MAX_VOXELS, TexturedMesh
 from .projections import block_color, family
 from .textures import tint_for
 
@@ -86,7 +86,11 @@ def normalize_legacy(name, props):
     }.get(name, name), props
 
 
-def voxel_state(src):
+def voxel_state(src, *, max_voxels=DEFAULT_MAX_VOXELS):
+    if isinstance(max_voxels, bool) or not isinstance(max_voxels, int) or max_voxels <= 0:
+        raise ValueError("max_voxels must be a positive integer")
+    if math.prod(src.size) > max_voxels:
+        raise ValueError(f"structure volume exceeds max_voxels={max_voxels:,}; choose a region or raise the limit")
     sx, sy, sz = src.size
     state = np.full((sx, sy, sz), -1, dtype=np.int32)
     for pos, index in src.present.items():
@@ -373,7 +377,7 @@ def resolve_special_parts(shape, bank, atlas):
     return parts
 
 
-def build_textured_meshes(src, solid, state, index_names, index_props, bank):
+def build_textured_geometry(src, solid, state, index_names, index_props, bank):
     atlas = Atlas()
     resolved = {}
     generic = {}
@@ -484,13 +488,10 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     wall_connectable = occluder | wall_family | fence_gate_family
     bars_connectable = occluder | bars_family
 
-    texture = None
+    atlas_image = None
     rects = []
     if atlas.images:
         atlas_image, rects = atlas.build()
-        texture = pv.Texture(atlas_image)
-        texture.SetInterpolate(False)
-        texture.mipmap = False
 
     points_all, faces_all, uv_all = [], [], []
     material_modes, mode_cache = [], {}
@@ -689,12 +690,21 @@ def build_textured_meshes(src, solid, state, index_names, index_props, bank):
     if not points_all:
         return [], flat_entities, textured_indices, occluder
 
-    mesh = pv.PolyData(np.vstack(points_all), np.concatenate(faces_all).astype(np.int64))
-    mesh.active_texture_coordinates = np.vstack(uv_all)
-    mesh.cell_data["alpha_mode"] = np.concatenate(material_modes)
-    if texture is None:
+    if atlas_image is None:
         raise RuntimeError("textured geometry was built without an atlas")
-    return [(mesh, texture)], flat_entities, textured_indices, occluder
+    mesh = TexturedMesh(
+        np.vstack(points_all), vtk_quads(np.concatenate(faces_all)),
+        np.vstack(uv_all), np.concatenate(material_modes), atlas_image,
+    )
+    return [mesh], flat_entities, textured_indices, occluder
+
+
+def build_textured_meshes(src, solid, state, index_names, index_props, bank):
+    """Compatibility adapter returning PyVista meshes and textures."""
+    meshes, entities, indices, occluder = build_textured_geometry(
+        src, solid, state, index_names, index_props, bank,
+    )
+    return [mesh.to_pyvista() for mesh in meshes], entities, indices, occluder
 
 
 def mask_surface(mask, occluder=None, lift=0.0):
@@ -783,18 +793,21 @@ def double_sided_trimesh(points, tris, visual=None):
     )
 
 
-def material_groups(mesh, texture):
+def material_groups(mesh, texture=None):
     """Yield compact quad buffers for each alpha mode, retaining vertex UVs."""
-    quads = vtk_quads(mesh.faces)
-    modes = mesh.cell_data.get("alpha_mode")
-    if modes is None:
-        modes = np.full(len(quads), ALPHA_MODES.index(alpha_mode(texture.to_array())))
+    if isinstance(mesh, TexturedMesh):
+        quads, modes, coordinates = mesh.quads, mesh.alpha_modes, mesh.uv
+    else:
+        quads, coordinates = vtk_quads(mesh.faces), np.asarray(mesh.active_texture_coordinates)
+        modes = mesh.cell_data.get("alpha_mode")
+        if modes is None:
+            modes = np.full(len(quads), ALPHA_MODES.index(alpha_mode(texture.to_array())))
     for mode in np.unique(modes):
         selected = quads[modes == mode]
         used, indices = np.unique(selected.ravel(), return_inverse=True)
         yield (
             ALPHA_MODES[int(mode)], mesh.points[used], indices.reshape(-1, 4),
-            np.asarray(mesh.active_texture_coordinates)[used],
+            coordinates[used],
         )
 
 
@@ -805,9 +818,9 @@ def export_parts(meshes, flat_groups, center):
     return export(meshes, flat_groups, center)
 
 
-def structure_export_parts(src, bank):
-    state, solid, index_names, index_props = voxel_state(src)
-    meshes, _, textured_indices, occluder = build_textured_meshes(
+def structure_export_parts(src, bank, *, max_voxels=DEFAULT_MAX_VOXELS):
+    state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
+    meshes, _, textured_indices, occluder = build_textured_geometry(
         src, solid, state, index_names, index_props, bank,
     )
     flat_groups = flat_block_groups(state, index_names, textured_indices, occluder)

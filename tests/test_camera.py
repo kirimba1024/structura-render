@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 import pytest
 
-from structura_render.camera import framing_distance
+from structura_render.camera import framing_distance, orthographic_scale
 
 
 @pytest.mark.parametrize("size", [(1, 1, 1), (1, 20, 2), (40, 1, 2)])
@@ -26,3 +26,12 @@ def test_fitted_camera_contains_every_corner_in_both_axes(size, aspect):
     assert np.all(depth > 0)
     assert np.all(np.abs(relative @ up) < depth * vertical)
     assert np.all(np.abs(relative @ right) < depth * vertical * aspect)
+
+
+@pytest.mark.parametrize("aspect", [.5, 1., 2.])
+def test_orthographic_camera_fits_every_direction(aspect):
+    size = (2, 3, 20)
+    half_height = orthographic_scale(size, aspect)
+    radius = np.linalg.norm(size) / 2
+    assert half_height > radius
+    assert half_height * aspect > radius

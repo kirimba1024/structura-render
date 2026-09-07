@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -11,11 +14,13 @@ from structura_render import block_model, textures
 from structura_render.export_io import write_gltf, write_obj
 from structura_render.mesh import (
     build_textured_meshes,
+    build_textured_geometry,
     structure_export_parts,
     voxel_state,
     vtk_quads,
 )
 from structura_render.stl import export_stl
+from structura_core import Structure, export_litematic, save_structure
 
 
 @pytest.fixture
@@ -162,3 +167,57 @@ def test_obj_keeps_texture_brightness_and_flat_opacity(tmp_path, assets):
 
     assert "Kd 1.00000000 1.00000000 1.00000000" in material
     assert "d 0.35294118" in material  # 90/255, the flat glass material
+
+
+def test_numpy_geometry_and_compatibility_adapter_keep_identical_buffers(assets):
+    src = structure("stone", "cutout", "translucent")
+    state, solid, names, props = voxel_state(src)
+    geometry = build_textured_geometry(src, solid, state, names, props, assets)[0][0]
+    mesh, texture = build_textured_meshes(src, solid, state, names, props, assets)[0][0]
+    np.testing.assert_array_equal(geometry.points, mesh.points)
+    np.testing.assert_array_equal(geometry.quads, vtk_quads(mesh.faces))
+    np.testing.assert_array_equal(geometry.uv, mesh.active_texture_coordinates)
+    np.testing.assert_array_equal(geometry.alpha_modes, mesh.cell_data["alpha_mode"])
+    np.testing.assert_array_equal(geometry.image, texture.to_array())
+
+
+@pytest.mark.parametrize("output_format", ["glb", "gltf", "obj", "stl", "usdz"])
+def test_litematic_cli_export_works_with_plotting_imports_blocked(tmp_path, assets, output_format):
+    src = structure("stone", "cutout", "translucent")
+    src.data_version = 3955
+    nbt = tmp_path / "input.nbt"
+    save_structure(src, nbt, src.size)
+    source = export_litematic(Structure(nbt), tmp_path / "input.litematic")
+    output = tmp_path / f"model.{output_format}"
+    script = """
+import importlib.abc, runpy, sys
+class NoPlotting(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'pyvista', 'vtk', 'vtkmodules'}:
+            raise AssertionError('file export imported a plotting backend: ' + fullname)
+sys.meta_path.insert(0, NoPlotting())
+sys.argv = ['structura-render', *sys.argv[1:]]
+runpy.run_module('structura_render', run_name='__main__')
+"""
+    env = {**os.environ, "STRUCTURA_MINECRAFT_ASSETS": str(tmp_path)}
+    result = subprocess.run(
+        [sys.executable, "-c", script, output_format, str(source), str(output)],
+        env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.stat().st_size > 100
+    if output_format == "usdz":
+        from pxr import Usd
+
+        stage = Usd.Stage.Open(str(output))
+        assert sum(prim.GetTypeName() == "Mesh" for prim in stage.Traverse()) == 3
+    else:
+        scene = trimesh.load(output, force="scene")
+        assert sum(len(part.faces) for part in scene.geometry.values()) == 36
+
+
+def test_volume_guard_rejects_distant_regions_before_numpy_allocation():
+    src = structure("stone")
+    src.size = (1_000_000_000, 1, 1)
+    with pytest.raises(ValueError, match="max_voxels"):
+        voxel_state(src)

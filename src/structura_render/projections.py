@@ -8,11 +8,18 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
-
 from structura_core import AIR_NAMES
+from structura_core.litematic import DEFAULT_MAX_BLOCKS
 
+from .export_io import write_image
 from .legacy_input import load_structure
 
+VIEWS = {
+    "top": (1, True), "bottom": (1, False),
+    "north": (2, False), "south": (2, True),
+    "west": (0, False), "east": (0, True),
+}
+DEFAULT_MAX_PIXELS = 16_000_000
 
 COLORS = {
     "air": (0, 0, 0),
@@ -91,11 +98,7 @@ def orient(image, view):
 
 
 def render_view(states, palette, view, color_mode):
-    axis, reverse = {
-        "top": (1, True), "bottom": (1, False),
-        "north": (2, False), "south": (2, True),
-        "west": (0, False), "east": (0, True),
-    }[view]
+    axis, reverse = VIEWS[view]
     visible = orient(frontmost(states, axis, reverse), view)
     canvas = np.full((*visible.shape, 3), 246.0)
 
@@ -114,27 +117,30 @@ def panel(image, title, scale):
     return panel_image
 
 
-def compose(panels, output, caption=None):
-    columns = min(3, len(panels))
-    row_count = math.ceil(len(panels) / columns)
-    gap = 18
+def _layout(sizes, caption=None):
+    if not sizes:
+        raise ValueError("at least one projection is required")
+    columns = min(3, len(sizes))
+    row_count = math.ceil(len(sizes) / columns)
     widths = [
-        max((panels[i].width for i in range(col, len(panels), columns)), default=0)
+        max(sizes[i][0] for i in range(col, len(sizes), columns))
         for col in range(columns)
     ]
     rows = [
-        max((panel.height for panel in panels[row * columns:(row + 1) * columns]), default=0)
+        max(size[1] for size in sizes[row * columns:(row + 1) * columns])
         for row in range(row_count)
     ]
-    caption_height = 22 if caption else 0
-    canvas = Image.new(
-        "RGB",
-        (
-            sum(widths) + gap * (columns + 1),
-            sum(rows) + gap * (row_count + 1) + caption_height,
-        ),
-        (238, 240, 243),
+    return widths, rows, (
+        sum(widths) + 18 * (columns + 1),
+        sum(rows) + 18 * (row_count + 1) + (22 if caption else 0),
     )
+
+
+def compose(panels, output=None, caption=None):
+    widths, rows, size = _layout([p.size for p in panels], caption)
+    columns, gap = len(widths), 18
+    caption_height = 22 if caption else 0
+    canvas = Image.new("RGB", size, (238, 240, 243))
     for index, item in enumerate(panels):
         row, col = divmod(index, columns)
         x = gap + sum(widths[:col]) + gap * col
@@ -144,14 +150,85 @@ def compose(panels, output, caption=None):
     draw = ImageDraw.Draw(canvas)
     if caption:
         draw.text((gap, 4), caption, fill=(60, 64, 72))
-    Path(output).parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(output)
+    if output is not None:
+        write_image(canvas, output)
+    return canvas
 
 
-def main():
+def _check_pixels(size, max_pixels):
+    if isinstance(max_pixels, bool) or not isinstance(max_pixels, int) or max_pixels <= 0:
+        raise ValueError("max_pixels must be a positive integer")
+    if math.prod(size) > max_pixels:
+        raise ValueError(f"image size {size} exceeds max_pixels={max_pixels:,}; reduce scale")
+
+
+def _projection_size(size, view, scale):
+    if view not in VIEWS:
+        raise ValueError(f"unknown view {view!r}; expected one of {tuple(VIEWS)}")
+    if isinstance(scale, bool) or not isinstance(scale, int) or scale < 1:
+        raise ValueError("scale must be a positive integer")
+    axis = VIEWS[view][0]
+    plane = tuple(size[i] for i in range(3) if i != axis)
+    width, height = plane[::-1] if axis == 0 else plane
+    return width * scale, height * scale
+
+
+def render_projection(source, *, view="top", scale=16, color_mode="family",
+                      transparent=False, max_pixels=DEFAULT_MAX_PIXELS):
+    """Return one unframed Pillow image from a path or in-memory Structure."""
+    if color_mode not in {"family", "block"}:
+        raise ValueError("color_mode must be 'family' or 'block'")
+    src = load_structure(source)
+    size = _projection_size(src.size, view, scale)
+    _check_pixels(size, max_pixels)
+    axis, reverse = VIEWS[view]
+    plane_axes = tuple(i for i in range(3) if i != axis)
+    plane_size = tuple(src.size[i] for i in plane_axes)
+    visible = np.full(plane_size, -1, dtype=np.int32)
+    depth = np.full(plane_size, -1 if reverse else src.size[axis], dtype=np.int64)
+    for pos, index in src.present.items():
+        if src.palette[index] in AIR_NAMES or src.palette[index] == "minecraft:structure_void":
+            continue
+        cell = tuple(pos[i] for i in plane_axes)
+        closer = pos[axis] > depth[cell] if reverse else pos[axis] < depth[cell]
+        if closer:
+            visible[cell], depth[cell] = index, pos[axis]
+    visible = orient(visible, view)
+    channels = 4 if transparent else 3
+    background = (0, 0, 0, 0) if transparent else (246, 246, 246)
+    canvas = np.full((*visible.shape, channels), background, dtype=np.uint8)
+    colors = np.asarray([block_color(name, color_mode) for name in src.palette], dtype=np.uint8)
+    present = visible >= 0
+    if present.any():
+        canvas[present, :3] = colors[visible[present]]
+        if transparent:
+            canvas[present, 3] = 255
+    return Image.fromarray(canvas).resize(size, Image.Resampling.NEAREST)
+
+
+def render_projections(source, output=None, *, views=tuple(VIEWS), scale=16,
+                       color_mode="family", max_pixels=DEFAULT_MAX_PIXELS):
+    """Return a sheet of named projections; optionally save it atomically."""
+    src = load_structure(source)
+    views = tuple(views)
+    sizes = [_projection_size(src.size, view, scale) for view in views]
+    _, _, size = _layout([(w + 16, h + 38) for w, h in sizes])
+    _check_pixels(size, max_pixels)
+    panels = [
+        panel(np.asarray(render_projection(src, view=view, scale=1, color_mode=color_mode,
+                                           max_pixels=max_pixels)), view, scale)
+        for view in views
+    ]
+    return compose(panels, output)
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("src")
     parser.add_argument("output")
+    parser.add_argument("--region", help="one named Litematic region")
+    parser.add_argument("--max-blocks", type=int, default=DEFAULT_MAX_BLOCKS)
+    parser.add_argument("--max-pixels", type=int, default=DEFAULT_MAX_PIXELS)
     parser.add_argument("--scale", type=int, default=16, help="pixels per block")
     parser.add_argument("--color-mode", choices=("family", "block"), default="family")
     parser.add_argument(
@@ -160,28 +237,17 @@ def main():
         default=("top", "bottom", "north", "south", "west", "east"),
         help="render only a subset of views, e.g. --views top",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.scale < 1:
         parser.error("--scale must be positive")
 
-    structure = load_structure(args.src)
-    states = np.full(structure.size, -1, dtype=np.int32)
-    for pos, index in structure.present.items():
-        if structure.palette[index] not in AIR_NAMES:
-            states[pos] = index
-
-    views = tuple(args.views)
-    rendered = [
-        render_view(states, structure.palette, view, args.color_mode)
-        for view in views
-    ]
-
     output = Path(args.output)
-    compose(
-        [panel(image, view, args.scale) for image, view in zip(rendered, views)],
-        output,
-        caption=None,
-    )
+    try:
+        structure = load_structure(args.src, region=args.region, max_blocks=args.max_blocks)
+        render_projections(structure, output, views=args.views, scale=args.scale,
+                           color_mode=args.color_mode, max_pixels=args.max_pixels)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
     print(output)
 
 

@@ -6,7 +6,7 @@ from structura_core import AIR_NAMES
 
 from .atlas import cropped_uv, face_texture_key, face_uv, uv_for_rect
 from .block_colours import block_color, family
-from .full_cube import is_occluder as shape_is_occluder
+from .full_cube import is_full_cube_shape, is_occluder as shape_is_occluder
 from .geometry import (
     CUBE_CORNERS,
     CUBE_FACES,
@@ -336,6 +336,19 @@ def _emit_torch(name, props, own, face_ids, buffer):
         buffer.append(positions, plane_z[CUBE_FACES[direction]], uv)
 
 
+def surface_neighbors(state, index, names, occluder, own):
+    name = names[index]
+    if shape_is_occluder(name):
+        return occluder
+    if name.endswith("_leaves"):
+        indices = [other for other, value in names.items() if value.endswith("_leaves")]
+    elif is_full_cube_shape(name):
+        indices = [other for other, value in names.items() if value == name]
+    else:
+        indices = [index]
+    return occluder | (own if len(indices) == 1 else np.isin(state, indices))
+
+
 def _emit_cube(own, face_ids, occluder, buffer):
     for direction in CUBE_FACES:
         mask = exposed_mask(own, occluder | own, direction)
@@ -361,4 +374,4 @@ def emit_fallback_blocks(resolved, state, names, properties, masks, buffer):
         elif name in TORCH_STANDING or name in TORCH_WALL:
             _emit_torch(name, props, own, face_ids, buffer)
         else:
-            _emit_cube(own, face_ids, masks.occluder, buffer)
+            _emit_cube(own, face_ids, surface_neighbors(state, index, names, masks.occluder, own), buffer)

@@ -56,7 +56,7 @@ def load_structure(path, *, region=None, max_blocks=DEFAULT_MAX_BLOCKS, strict=F
         path.validate()
         return path
     path = Path(path)
-    if path.suffix.lower() in {".litematic", ".schem", ".mcstructure"}:
+    if path.suffix.lower() in {".litematic", ".schem", ".mcstructure", ".schematic"}:
         try:
             return load_native(path, region=region, max_blocks=max_blocks, strict=strict)
         except UnsupportedSchematicVersion as error:

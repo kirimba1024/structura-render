@@ -130,12 +130,14 @@ class QuadBuffer:
         )]
 
 
-def _emit_models(blocks, state, occluder, buffer):
+def _emit_models(blocks, state, names, occluder, buffer):
+    from .block_geometry import surface_neighbors
+
     for index, faces in blocks.items():
         own = state == index
         if not own.any():
             continue
-        neighbors = occluder | own
+        neighbors = surface_neighbors(state, index, names, occluder, own)
         for face in faces:
             mask = exposed_mask(own, neighbors, face.cullface) if face.cullface else own
             pos = np.argwhere(mask).astype(np.float32)
@@ -211,7 +213,7 @@ def _build_textured_geometry(src, solid, state, index_names, index_props, bank, 
     masks = block_masks(state, index_names, index_props)
     image, rects = atlas.build(max_size=max_atlas_size) if atlas.images else (None, [])
     buffer = QuadBuffer(image, rects, emit_bounds, emit_mask)
-    _emit_models(models.blocks, state, masks.occluder, buffer)
+    _emit_models(models.blocks, state, index_names, masks.occluder, buffer)
     _emit_specials(models, index_names, masks, buffer)
     emit_fallback_blocks(models.fallback, state, index_names, index_props, masks, buffer)
     _emit_entities(models.entities, buffer)

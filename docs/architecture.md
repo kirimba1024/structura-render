@@ -24,6 +24,12 @@ operations that need them.
 `mesh` prepares models once, calculates neighbor masks, packs the atlas, then
 emits ordinary model faces, special block faces, fallback shapes and entities.
 `QuadBuffer` owns vertex offsets, accumulated arrays and alpha classification.
+
+Transparent full-cube neighbor culling groups states by block identity instead of
+palette index. Leaf species share one culling group, so differences in `distance`,
+`persistent` or species do not emit coincident internal faces. Glass/ice states and
+fluid levels likewise share the appropriate group; distinct materials retain their
+boundary. Model-backed and fallback geometry use the same neighbor rule.
 Fallback shape functions receive the data needed by each shape family.
 
 `PreparedModels` groups resolved models. Each `SpecialModel` owns its palette

@@ -94,3 +94,43 @@ def test_atlas_overflow_rejected_before_output_allocation(monkeypatch):
     monkeypatch.setattr(np, 'zeros', forbidden)
     with pytest.raises(ValueError, match='max_atlas_size'):
         atlas.build(max_size=128)
+
+
+@pytest.mark.parametrize("model", [False, True])
+@pytest.mark.parametrize("first,second", [
+    ("oak_leaves[distance=1,persistent=false]", "oak_leaves[distance=7,persistent=true]"),
+    ("oak_leaves", "birch_leaves"),
+    ("glass", "glass[custom=true]"),
+    ("ice", "ice[custom=true]"),
+    ("water[level=0]", "water[level=1]"),
+])
+def test_transparent_neighbor_states_do_not_emit_coincident_internal_faces(tmp_path, model, first, second):
+    import json
+    from types import SimpleNamespace
+    from structura_core import parse_state
+    from structura_render.assets import AssetContext
+    from structura_render.mesh import build_textured_geometry, voxel_state
+
+    textures = tmp_path / "textures/block"
+    textures.mkdir(parents=True)
+    names = [value.split("[", 1)[0] for value in (first, second)]
+    for name in set(names):
+        texture = "water_still" if name == "water" else name
+        Image.new("RGBA", (16, 16), (110, 160, 130, 128)).save(textures / f"{texture}.png")
+        if model and name != "water":
+            states = tmp_path / "blockstates"
+            models = tmp_path / "models/block"
+            states.mkdir(exist_ok=True)
+            models.mkdir(parents=True, exist_ok=True)
+            (states / f"{name}.json").write_text(json.dumps({"variants": {"": {"model": "block/" + name}}}))
+            (models / f"{name}.json").write_text(json.dumps({"textures": {"all": "block/" + name}, "elements": [{
+                "from": [0, 0, 0], "to": [16, 16, 16], "faces": {
+                    direction: {"texture": "#all", "cullface": direction} for direction in ("up", "down", "north", "south", "east", "west")}}]}))
+    source = SimpleNamespace(size=(2, 1, 1), present={(0, 0, 0): 0, (1, 0, 0): 1},
+                             palette=["minecraft:" + name for name in names],
+                             palette_raw=[parse_state("minecraft:" + value) for value in (first, second)], block_nbt={}, entities=[])
+    state, solid, names, props = voxel_state(source)
+    geometry = build_textured_geometry(source, solid, state, names, props, TextureBank(AssetContext(tmp_path)))[0][0]
+    quads = geometry.points[geometry.quads]
+    assert not (quads[:, :, 0] == 1).all(axis=1).any()
+    assert len(quads) == 10

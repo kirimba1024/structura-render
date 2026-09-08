@@ -1,0 +1,3 @@
+include CHANGELOG.md pyrightconfig.json
+recursive-include docs *.md *.json
+recursive-include checks *.py *.cjs

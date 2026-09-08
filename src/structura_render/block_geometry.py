@@ -168,7 +168,7 @@ def is_post_family(name):
     return is_fence(name) or is_pane(name) or is_wall(name) or is_bars(name)
 
 
-def flat_block_groups(state, index_names, textured_indices, occluder, *, color_mode="family", emit_bounds=None):
+def flat_block_groups(state, index_names, textured_indices, occluder, *, color_mode="family", emit_bounds=None, emit_mask=None):
     combined_occluder = occluder.copy()
     color_masks = {}
     for index, name in index_names.items():
@@ -190,6 +190,8 @@ def flat_block_groups(state, index_names, textured_indices, occluder, *, color_m
     if emit_bounds is not None:
         emitted = np.zeros(state.shape, dtype=bool)
         emitted[tuple(slice(lo, hi) for lo, hi in zip(*emit_bounds))] = True
+    if emit_mask is not None:
+        emitted = emitted & emit_mask
     for color, mask in color_masks.items():
         points, faces = mask_surface(mask & emitted, combined_occluder | mask)
         if points:

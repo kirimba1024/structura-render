@@ -87,7 +87,7 @@ from .mesh_models import (
 
 
 class QuadBuffer:
-    def __init__(self, atlas_image, rects, emit_bounds=None):
+    def __init__(self, atlas_image, rects, emit_bounds=None, emit_mask=None):
         self.atlas_image = atlas_image
         self.rects = rects
         self.points_all = []
@@ -97,11 +97,14 @@ class QuadBuffer:
         self.mode_cache = {}
         self.vertex_count = 0
         self.emit_bounds = emit_bounds
+        self.emit_mask = emit_mask
 
     def append(self, positions, offsets, uv):
         if self.emit_bounds is not None:
             lower, upper = self.emit_bounds
             positions = positions[((positions >= lower) & (positions < upper)).all(axis=1)]
+        if self.emit_mask is not None and len(positions):
+            positions = positions[self.emit_mask[tuple(positions.astype(np.intp).T)]]
         if len(positions) == 0:
             return
         points = (positions[:, None, :] + offsets[None, :, :]).reshape(-1, 3)
@@ -195,19 +198,19 @@ def _emit_entities(parts, buffer):
             buffer.append(origin, corners[CUBE_FACES[direction]], face_uv(uv_for_rect(buffer.rects[rect_index]), direction))
 
 
-def build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False, emit_bounds=None):
+def build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size=DEFAULT_MAX_ATLAS_SIZE, strict=False, emit_bounds=None, emit_mask=None):
     context = getattr(bank, "context", None) or current_context()
     with render_diagnostics(strict=strict), context.activate():
         return _build_textured_geometry(src, solid, state, index_names, index_props, bank,
-                                        max_atlas_size=max_atlas_size, emit_bounds=emit_bounds)
+                                        max_atlas_size=max_atlas_size, emit_bounds=emit_bounds, emit_mask=emit_mask)
 
 
-def _build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size, emit_bounds):
+def _build_textured_geometry(src, solid, state, index_names, index_props, bank, *, max_atlas_size, emit_bounds, emit_mask):
     atlas = Atlas(max_size=max_atlas_size)
     models = prepare_models(src, state, index_names, index_props, bank, atlas)
     masks = block_masks(state, index_names, index_props)
     image, rects = atlas.build(max_size=max_atlas_size) if atlas.images else (None, [])
-    buffer = QuadBuffer(image, rects, emit_bounds)
+    buffer = QuadBuffer(image, rects, emit_bounds, emit_mask)
     _emit_models(models.blocks, state, masks.occluder, buffer)
     _emit_specials(models, index_names, masks, buffer)
     emit_fallback_blocks(models.fallback, state, index_names, index_props, masks, buffer)

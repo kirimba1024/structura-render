@@ -126,6 +126,18 @@ Pass `bank=None` for diagnostic geometry. Each `FlatMesh` has `color`, `points`
 and `quads` fields and also unpacks as a three-item tuple. Geometry stays in
 local structure coordinates; file exporters apply their centering separately.
 
+For section rendering, `build_textured_geometry` and `flat_block_groups` accept
+`emit_bounds=(lower, upper)` in local block coordinates, with an exclusive upper
+bound. They emit only blocks whose origins fall inside that box while retaining
+the complete input for neighbor checks. Supply a one-block halo around each
+section for the current adjacency rules. Geometry belonging to those blocks may
+extend outside the box; this is not triangle clipping. Ordinary entities are
+built separately and are not filtered by this block emission boundary.
+An optional boolean `emit_mask` with the voxel state's shape further restricts
+emission by block origin. It combines with `emit_bounds` and leaves all neighbors
+available for model connections and occlusion. Complementary masks can partition
+the same scene into opaque and preview layers without changing block shapes.
+
 Client blockstates, multipart models, parent models, rotations and UV locking
 supply block geometry. Special blocks use textured models; entity rendering
 is static. Animation, item predicates, glint, trims and arbitrary display

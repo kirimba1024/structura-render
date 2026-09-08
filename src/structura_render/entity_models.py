@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from .assets import context_cached, current_context
-from .entity_shapes import box
+from .shape_geometry import box
 
 _DIRECT_LAYERS = frozenset("""
 allay armadillo axolotl bat bee blaze bogged breeze camel cat cave_spider chicken cod
@@ -21,6 +21,7 @@ zombie_nautilus zombie_villager zombified_piglin
 """.split())
 
 ENTITY_LAYERS = {kind: kind.upper() for kind in _DIRECT_LAYERS}
+
 ENTITY_LAYERS.update({
     "camel_husk": "CAMEL",
     "pufferfish": "PUFFERFISH_BIG",
@@ -141,11 +142,11 @@ def model_parts(kind, nbt, texture, *, layer=None, baseline=24.016, ground=False
     layer = layer or model_layer(kind, nbt)
     root = _catalog().get(layer)
     image = _texture_image(texture)
-    if root is None or image is None:
+    if root is None:
         return []
 
-    width, height = image.size
-    alpha = image.getchannel("A")
+    width, height = image.size if image is not None else (1, 1)
+    alpha = image.getchannel("A") if image is not None else None
     turn = math.radians(outer_y_rotation)
     cosine, sine = math.cos(turn), math.sin(turn)
     quads = list(_quads(root))
@@ -160,7 +161,7 @@ def model_parts(kind, nbt, texture, *, layer=None, baseline=24.016, ground=False
         y0 = max(0, int(math.floor(min(v for _, v in pixel_uv) + 1e-6)))
         x1 = min(width, int(math.ceil(max(u for u, _ in pixel_uv) - 1e-6)))
         y1 = min(height, int(math.ceil(max(v for _, v in pixel_uv) - 1e-6)))
-        if x1 <= x0 or y1 <= y0 or alpha.crop((x0, y0, x1, y1)).getbbox() is None:
+        if x1 <= x0 or y1 <= y0 or (alpha is not None and alpha.crop((x0, y0, x1, y1)).getbbox() is None):
             continue
         world = []
         for x, y, z in vertices:

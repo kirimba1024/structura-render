@@ -20,7 +20,8 @@ embedded raster image. Titles remain text.
 outline; ground level is a dashed path. Masks are supplied by the caller.
 SVG supports vector plans/annotations, not textured 3D rendering. Complex
 plans can exceed PNG size: `max_elements=100_000` and `max_pixels=16_000_000`
-bound output. Failures preserve an existing file.
+bound output. The element limit counts the complete document, including the
+root, title and description. Failures preserve an existing file.
 
 ## USD scenes
 

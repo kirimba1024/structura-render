@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from structura_render import AssetContext, entities, entity_models, textures
+from structura_render import AssetContext, entities, entity_models, entity_mobs, entity_objects, textures
 from structura_render.entity_shapes import entity_shape, nbt_signature
 from structura_render.item_models import _static_model, item_id
 
@@ -32,7 +32,7 @@ def test_outer_fractional_position_is_hanging_fallback_before_inner_nbt():
 
 
 def test_item_frame_keeps_item_and_all_eight_rotations(monkeypatch):
-    monkeypatch.setattr(entities, "stack_texture", lambda stack: "item/apple")
+    monkeypatch.setattr(entity_objects, "stack_texture", lambda stack: "item/apple")
     base = {"facing": 0, "Item": {"id": "minecraft:apple", "count": 1}}
     straight = entities.item_frame_parts(base, glowing=False)
     diagonal = entities.item_frame_parts({**base, "ItemRotation": 1}, glowing=False)
@@ -42,7 +42,7 @@ def test_item_frame_keeps_item_and_all_eight_rotations(monkeypatch):
 
 
 def test_floor_item_frame_uses_full_direction_encoding(monkeypatch):
-    monkeypatch.setattr(entities, "stack_texture", lambda stack: "item/apple")
+    monkeypatch.setattr(entity_objects, "stack_texture", lambda stack: "item/apple")
     parts = entities.item_frame_parts(
         {"Facing": 1, "Item": {"id": "minecraft:apple", "Count": 1}},
         glowing=False,
@@ -52,7 +52,7 @@ def test_floor_item_frame_uses_full_direction_encoding(monkeypatch):
 
 
 def test_unresolved_legacy_item_still_marks_the_frame_slot(monkeypatch):
-    monkeypatch.setattr(entities, "stack_texture", lambda stack: None)
+    monkeypatch.setattr(entity_objects, "stack_texture", lambda stack: None)
     parts = entities.item_frame_parts(
         {"Direction": 0, "Item": {"id": 351, "Count": 1}}, glowing=False,
     )
@@ -75,7 +75,7 @@ def test_static_entities_keep_fractional_placement(monkeypatch):
 
 def test_armor_stand_visibility_and_equipment(monkeypatch):
     monkeypatch.setattr(
-        entities, "stack_texture",
+        entity_objects, "stack_texture",
         lambda stack: "item/apple" if item_id(stack) else None,
     )
     visible = entities.armor_stand_parts({"ShowArms": 1})
@@ -201,7 +201,7 @@ def test_every_vanilla_non_mob_entity_has_an_explicit_handler():
 
 
 def test_common_mob_skin_variants_are_selected_from_nbt(monkeypatch):
-    monkeypatch.setattr(entities, "_asset", lambda *stems: stems[0])
+    monkeypatch.setattr(entity_mobs, "_asset", lambda *stems: stems[0])
     assert entities._mob_texture(
         "cat", {"variant": "minecraft:calico"}, ("entity/cat/cat_tabby",),
     ) == "entity/cat/cat_calico"
@@ -233,7 +233,7 @@ def test_record_without_entity_id_is_ignored():
 
 def test_legacy_armor_stand_equipment_is_kept(monkeypatch):
     monkeypatch.setattr(
-        entities, "stack_texture",
+        entity_objects, "stack_texture",
         lambda stack: "item/apple" if item_id(stack) else None,
     )
     parts = entities.armor_stand_parts({
@@ -246,7 +246,7 @@ def test_legacy_armor_stand_equipment_is_kept(monkeypatch):
 
 def test_modern_equipment_compound_is_kept(monkeypatch):
     monkeypatch.setattr(
-        entities, "stack_texture",
+        entity_objects, "stack_texture",
         lambda stack: "item/apple" if item_id(stack) else None,
     )
     parts = entities.armor_stand_parts({

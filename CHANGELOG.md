@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.1
+
+- Require core 0.6.1 and align diagnostics with its SciPy-free base install.
+  Report SVG, VOX and USD dependencies alongside the other supported outputs.
+
+- Share projection geometry and overlay rules between PNG and SVG; load a
+  projection sheet's source once. Split SVG validation, layers and XML output.
+- Count all SVG elements against the output limit, including root and metadata.
+- Prepare block faces as explicit geometry records. Preserve surfaces with
+  partially missing textures and resource namespaces in fence-post lookups.
+- Share complete NumPy scene geometry between hero images, USD and trimesh
+  exports; separate model texture resolution and USD stage construction.
+- Store NBT variants as instance coordinates instead of one dense volume per
+  variant. Accumulate native quads without intermediate VTK face arrays.
+- Preserve special blocks and entities when their textures are missing,
+  retaining strict diagnostics. Include entities in diagnostic hero images.
+- Keep opaque fallback faces visible behind glass, and hide technical blocks
+  in diagnostic scenes. Use the same flat surface rules for every exporter.
+
 ## 0.8.0
 
 - Add standalone vector SVG plans with merged cells, labelled overlays and bounded output.

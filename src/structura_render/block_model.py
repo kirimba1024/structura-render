@@ -1,29 +1,26 @@
 """Resolve vanilla blockstate/model JSON into textured quads."""
+
 import json
 import math
 from functools import wraps
 
 from .assets import current_context, read_json
 from .diagnostics import report_issue
+from .geometry import (
+    AXIS_VEC as AXIS_VEC,
+    FACE_CORNERS as FACE_CORNERS,
+)
 
 DIRECTIONS = ("up", "down", "north", "south", "east", "west")
-AXIS_VEC = {
-    "up": (0, 1, 0), "down": (0, -1, 0),
-    "north": (0, 0, -1), "south": (0, 0, 1),
-    "east": (1, 0, 0), "west": (-1, 0, 0),
-}
+
 VEC_AXIS = {v: k for k, v in AXIS_VEC.items()}
 
-FACE_CORNERS = {
-    "up": (4, 7, 6, 5), "down": (0, 1, 2, 3),
-    "north": (1, 0, 4, 5), "south": (3, 2, 6, 7),
-    "east": (2, 1, 5, 6), "west": (0, 3, 7, 4),
-}
 FACE_UV_BASIS = {
     "up": ((1, 0, 0), (0, 0, 1)), "down": ((1, 0, 0), (0, 0, 1)),
     "north": ((-1, 0, 0), (0, 1, 0)), "south": ((1, 0, 0), (0, 1, 0)),
     "east": ((0, 0, -1), (0, 1, 0)), "west": ((0, 0, 1), (0, 1, 0)),
 }
+
 FACE_UV_PLANE = {
     "up": (0, 2), "down": (0, 2),
     "north": (0, 1), "south": (0, 1),
@@ -184,7 +181,8 @@ def uvlock_quarters(direction, x_deg, y_deg):
 
 @safe
 def post_texture(name):
-    model = resolve_model(f"{strip_ns(name)}_post")
+    namespace = name.split(":", 1)[0] if ":" in name else "minecraft"
+    model = resolve_model(f"{namespace}:block/{strip_ns(name)}_post")
     return resolve_texture(model["textures"].get("particle"), model["textures"])
 
 

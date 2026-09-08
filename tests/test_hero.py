@@ -16,11 +16,15 @@ def test_invalid_options_fail_without_loading_a_source(options):
         render_hero("does-not-exist.nbt", **options)
 
 
-def test_plotter_is_closed_when_image_encoding_fails(monkeypatch):
+@pytest.mark.parametrize("entity_only", [False, True])
+def test_plotter_is_closed_when_image_encoding_fails(monkeypatch, tmp_path, entity_only):
     import pyvista as pv
-    from structura_render import hero, legacy_input, mesh
+    from amulet_nbt import CompoundTag, DoubleTag, IntTag, ListTag, StringTag
+    from structura_core import Structure, parse_state
+    from structura_render import AssetContext, hero
 
     closed = []
+    meshes = []
 
     class Plotter:
         bounds = (0, 1, 0, 1, 0, 1)
@@ -36,7 +40,7 @@ def test_plotter_is_closed_when_image_encoding_fails(monkeypatch):
             pass
 
         def add_mesh(self, *args, **kwargs):
-            pass
+            meshes.append(args[0])
 
         def reset_camera_clipping_range(self):
             pass
@@ -49,15 +53,26 @@ def test_plotter_is_closed_when_image_encoding_fails(monkeypatch):
 
     monkeypatch.setattr(pv, "system_supports_plotting", lambda: True)
     monkeypatch.setattr(pv, "Plotter", Plotter)
-    monkeypatch.setattr(legacy_input, "load_structure", lambda src, **kwargs: SimpleNamespace(size=(1, 1, 1)))
-    monkeypatch.setattr(mesh, "voxel_state", lambda *args, **kwargs: (
-        np.zeros((1, 1, 1), dtype=int), np.ones((1, 1, 1), dtype=bool), {0: "minecraft:stone"}, {},
-    ))
+    source = Structure.from_root(CompoundTag({
+        "DataVersion": IntTag(3955),
+        "size": ListTag([IntTag(1)] * 3),
+        "palette": ListTag([parse_state("minecraft:stone")]),
+        "blocks": ListTag(), "entities": ListTag(),
+    }))
+    source.present = {(0, 0, 0): 0}
+    if entity_only:
+        source.present.clear()
+        source.entities = [CompoundTag({
+            "pos": ListTag([DoubleTag(.5), DoubleTag(0), DoubleTag(.5)]),
+            "blockPos": ListTag([IntTag(0)] * 3),
+            "nbt": CompoundTag({"id": StringTag("minecraft:tnt")}),
+        })]
 
     def fail(*args):
         raise OSError("encoding failed")
 
     monkeypatch.setattr(hero, "write_image", fail)
-    with pytest.raises(OSError, match="encoding failed"):
-        render_hero("source.nbt", "out.png", no_textures=True, window=4)
+    with AssetContext(tmp_path).activate(), pytest.raises(OSError, match="encoding failed"):
+        render_hero(source, "out.png", no_textures=True, window=4)
     assert closed == [True]
+    assert sum(mesh.n_cells for mesh in meshes) == 6

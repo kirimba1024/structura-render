@@ -5,7 +5,7 @@ from pathlib import Path
 
 from structura_core import Structure, save_structure
 from structura_core import load_structure as load_native
-from structura_core.litematic import DEFAULT_MAX_BLOCKS
+from structura_core.limits import DEFAULT_MAX_BLOCKS
 from structura_core.schematic import MissingSchematicDataVersion, UnsupportedSchematicVersion
 
 NATIVE_SUFFIXES = {".nbt", ".snbt"}

@@ -7,6 +7,14 @@ from zipfile import BadZipFile, ZipFile
 
 import numpy as np
 
+from .projection_grid import VIEWS, depth_range, orient
+
+OVERLAY_STYLES = (
+    ("cavern_aura", (88, 132, 235), .14),
+    ("aura", (56, 192, 224), .22),
+    ("envelope", (190, 76, 226), .26),
+)
+
 
 @dataclass(frozen=True)
 class ProjectionOverlays:
@@ -39,29 +47,29 @@ def _blend(canvas, mask, color, opacity):
         canvas[mask, 3] = alpha[:, 0] * 255
 
 
-def draw_overlays(canvas, overlays, view, size, axis, orient, *, depth=None):
+def projected_overlays(overlays, view, size, depth=None):
+    if not isinstance(overlays, ProjectionOverlays):
+        raise ValueError("overlays must be ProjectionOverlays")
     overlays.validate(size)
-    canvas = canvas.astype(np.float64)
-    for name, color, opacity in (
-        ("cavern_aura", (88, 132, 235), .14),
-        ("aura", (56, 192, 224), .22),
-        ("envelope", (190, 76, 226), .26),
-    ):
+    axis = VIEWS[view][0]
+    selection = [slice(None)] * 3
+    selection[axis] = slice(*depth_range(depth, size, axis))
+    for name, color, opacity in OVERLAY_STYLES:
         mask = getattr(overlays, name)
-        if mask is None:
-            continue
-        if depth is not None:
-            selection = [slice(None)] * 3
-            selection[axis] = slice(*depth)
-            mask = mask[tuple(selection)]
-        plane = orient(mask.any(axis=axis), view)
+        if mask is not None:
+            yield name, color, opacity, orient(mask[tuple(selection)].any(axis=axis), view)
+
+
+def draw_overlays(canvas, overlays, view, size, *, depth=None):
+    canvas = canvas.astype(np.float64)
+    for name, color, opacity, plane in projected_overlays(overlays, view, size, depth):
         _blend(canvas, plane, color, opacity)
         if name == "envelope":
             inside = np.zeros_like(plane)
             inside[1:-1, 1:-1] = (plane[1:-1, 1:-1] & plane[:-2, 1:-1] & plane[2:, 1:-1]
                                   & plane[1:-1, :-2] & plane[1:-1, 2:])
             _blend(canvas, plane & ~inside, np.asarray(color) * .8, 1)
-    if overlays.ground_y is not None and axis != 1:
+    if overlays.ground_y is not None and VIEWS[view][0] != 1:
         dash = np.zeros(canvas.shape[:2], dtype=bool)
         dash[size[1] - 1 - overlays.ground_y, (np.arange(canvas.shape[1]) // 2) % 2 == 0] = True
         _blend(canvas, dash, (0, 0, 0), .45)

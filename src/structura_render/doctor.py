@@ -12,7 +12,7 @@ from zipfile import BadZipFile, ZipFile
 
 from .assets import _cache_root, _pack_data_root, minecraft_assets_source
 
-BASE_PACKAGES = ("structura-core", "structura-render", "amulet-nbt", "numpy", "Pillow", "scipy")
+BASE_PACKAGES = ("structura-core", "structura-render", "amulet-nbt", "numpy", "Pillow")
 BACKEND_PACKAGES = {
     "hero": ("pyvista", "vtk"), "usdz": ("usd-core",),
     "gltf": ("trimesh", "networkx"), "obj": ("trimesh", "networkx"), "stl": ("trimesh", "networkx"),
@@ -115,8 +115,10 @@ def diagnose(*, source=None, render_test=False):
         assets = {"path": None, "layout_ok": False, "error": str(error), "minecraft_version": None}
     report = {"schema_version": 1, "python": platform.python_version(), "packages": packages,
               "assets": assets, "cache": _cache(), "outputs": {}, "render_test": {"status": "not_run"}}
-    for output, extra in (("projections", None), ("png", "hero"), ("glb", "gltf"), ("gltf", "gltf"),
-                          ("obj", "obj"), ("stl", "stl"), ("usdz", "usdz")):
+    for output, extra in (("projections", None), ("svg", None), ("vox", None),
+                          ("png", "hero"), ("glb", "gltf"), ("gltf", "gltf"),
+                          ("obj", "obj"), ("stl", "stl"), ("usd", "usdz"),
+                          ("usda", "usdz"), ("usdc", "usdz"), ("usdz", "usdz")):
         required = (*BASE_PACKAGES, *BACKEND_PACKAGES.get(extra, ()))
         missing = [name for name in required if packages[name] is None]
         status = "dependencies_missing" if missing else "dependencies_present"

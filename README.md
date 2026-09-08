@@ -89,6 +89,8 @@ approximations. Keep generated resource directories with glTF, OBJ and plain USD
 
 ## Documentation
 
+- [Release verification](docs/release-0.8.1.md): core compatibility, installed packages and integration checks.
+- [Architecture](docs/architecture.md): geometry pipeline, model catalogs and module boundaries.
 - [Rendering guide](https://github.com/kirimba1024/structura-render/blob/main/docs/guide.md): Python API, layers, overlays, resource caches and output limits.
 - [Format recipes](https://github.com/kirimba1024/structura-render/blob/main/docs/formats.md): SVG, USD, VOX, WebP and Bedrock input.
 - [Diagnostics and showcase](https://github.com/kirimba1024/structura-render/blob/main/docs/guide.md#installation-diagnostics): `structura-render doctor`, `doctor --render-test`, `examples --showcase`.

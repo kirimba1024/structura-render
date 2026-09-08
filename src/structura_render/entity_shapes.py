@@ -1,22 +1,45 @@
 """Compact models for blocks rendered outside block-model JSON."""
 
-import json
-import math
-
-from PIL import Image
-
-from . import font
-
-DYES = {
-    "white": (249, 255, 254), "orange": (249, 128, 29),
-    "magenta": (199, 78, 189), "light_blue": (58, 179, 218),
-    "yellow": (254, 216, 61), "lime": (128, 199, 31),
-    "pink": (243, 139, 170), "gray": (71, 79, 82),
-    "light_gray": (157, 157, 151), "cyan": (22, 156, 156),
-    "purple": (137, 50, 184), "blue": (60, 68, 170),
-    "brown": (131, 84, 50), "green": (94, 124, 22),
-    "red": (176, 46, 38), "black": (29, 29, 33),
-}
+from .block_colours import (
+    DYES as DYES,
+)
+from .shape_geometry import (
+    HALF_TURN_X as HALF_TURN_X,
+    HALF_TURN_Y as HALF_TURN_Y,
+    HALF_TURN_Z as HALF_TURN_Z,
+    MODEL_AXES as MODEL_AXES,
+    MODEL_UV as MODEL_UV,
+    NO_TURN as NO_TURN,
+    OPPOSITE as OPPOSITE,
+    QUARTER_TURN_X as QUARTER_TURN_X,
+    SIGNED_AXIS as SIGNED_AXIS,
+    SMALL_SCALE as SMALL_SCALE,
+    SPIN_Z as SPIN_Z,
+    TURNS as TURNS,
+    WORLD_UV as WORLD_UV,
+    _px as _px,
+    after as after,
+    angle_for as angle_for,
+    box as box,
+    cube as cube,
+    cube_faces as cube_faces,
+    spin_z as spin_z,
+    turned_box as turned_box,
+    unwrap as unwrap,
+)
+from .signs import (
+    SIGN_LINES as SIGN_LINES,
+    TEXT_DEPTH as TEXT_DEPTH,
+    _hanging_plane as _hanging_plane,
+    _plain_text as _plain_text,
+    _sign_side as _sign_side,
+    _text_line_boxes as _text_line_boxes,
+    entity_decoration as entity_decoration,
+    sign as sign,
+    sign_board_bounds as sign_board_bounds,
+    sign_text_boxes as sign_text_boxes,
+    sign_text_metrics as sign_text_metrics,
+)
 
 INVISIBLE = {
     "minecraft:barrier", "minecraft:light", "minecraft:moving_piston",
@@ -24,56 +47,8 @@ INVISIBLE = {
 }
 
 
-def box(lo, hi, texture, crop=None, tint=None, alpha=255, angle=0, faces=None, turns=None):
-    return {
-        "lo": lo, "hi": hi, "texture": texture, "crop": crop, "tint": tint,
-        "alpha": alpha, "angle": angle, "faces": faces, "turns": turns,
-    }
-
-
-def angle_for(props):
-    if "rotation" in props:
-        return int(props["rotation"]) * 22.5
-    return {"north": 0, "east": 90, "south": 180, "west": 270}.get(props.get("facing"), 0)
-
-
 def colored(base, suffix):
     return next((color for color in DYES if base == f"{color}_{suffix}"), None)
-
-
-def _plain_text(component):
-    """A text component flattened to the characters it actually shows.
-
-    A component is a tree: its own `text` followed by its `extra` children,
-    each of which is another component. Reading only the root's `text` renders
-    a sign as blank whenever an editor wrote the line as a list or wrapped it
-    in a formatting child, which is common and gives no hint that anything
-    was lost.
-    """
-    if isinstance(component, str):
-        return component
-    if isinstance(component, list):
-        return "".join(_plain_text(child) for child in component)
-    if isinstance(component, dict):
-        return str(component.get("text", "")) + "".join(
-            _plain_text(child) for child in component.get("extra", [])
-        )
-    return ""
-
-
-def _sign_side(component):
-    lines = []
-    for raw in component.get("messages", []):
-        raw = str(raw)
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            parsed = raw
-        lines.append(_plain_text(parsed))
-    if not any(lines):
-        return None
-    color = str(component.get("color", "black"))
-    return (tuple(lines), color if color in DYES else "black", bool(component.get("has_glowing_text", 0)))
 
 
 def nbt_sensitive(name):
@@ -109,145 +84,6 @@ def nbt_signature(name, nbt):
         plain = all(item.split(":", 1)[-1] == "brick" for item in sherds)
         return None if plain or len(sherds) != 4 else ("pot", sherds)
     return None
-
-
-OPPOSITE = {
-    "up": "down", "down": "up", "north": "south",
-    "south": "north", "east": "west", "west": "east",
-}
-
-# Which way an image runs once it is on a face: the direction of one step
-# right across the crop, then one step down it. The first table is how
-# Minecraft reads a model's own six faces -- its sheets are laid out for a
-# model whose Y points down, which is why every one of these runs downward
-# toward "up" -- and the second is how this renderer draws the world's six.
-MODEL_UV = {
-    "down": ("east", "north"), "up": ("east", "north"),
-    "north": ("east", "up"), "south": ("west", "up"),
-    "east": ("south", "up"), "west": ("north", "up"),
-}
-WORLD_UV = {
-    "up": ("east", "north"), "down": ("east", "north"),
-    "north": ("west", "down"), "south": ("east", "down"),
-    "east": ("north", "down"), "west": ("south", "down"),
-}
-
-# What each of Pillow's transposes does to a crop's own right and down --
-# where they point once the turned image is read the ordinary way. Pillow
-# rotates anticlockwise, so ROTATE_90 sends the crop's right up the page and
-# its down to the right, and these are the two that are easy to write down
-# backwards: test_turns_match_pillow keeps them honest.
-TURNS = {
-    None: lambda right, down: (right, down),
-    Image.FLIP_LEFT_RIGHT: lambda right, down: (OPPOSITE[right], down),
-    Image.FLIP_TOP_BOTTOM: lambda right, down: (right, OPPOSITE[down]),
-    Image.ROTATE_180: lambda right, down: (OPPOSITE[right], OPPOSITE[down]),
-    Image.ROTATE_90: lambda right, down: (down, OPPOSITE[right]),
-    Image.ROTATE_270: lambda right, down: (OPPOSITE[down], right),
-    Image.TRANSPOSE: lambda right, down: (down, right),
-    Image.TRANSVERSE: lambda right, down: (OPPOSITE[down], OPPOSITE[right]),
-}
-
-# Where each of a model's own faces ends up pointing once the game has set it
-# in its block, before the block's own rotation. Every block entity drawn
-# this way lands on one of these: the renderer rights a Y-down model with a
-# half turn, and which axis it turns about decides everything downstream.
-# Chests keep their Y and are turned to face the other way instead; a bed is
-# the one that gets a quarter turn, onto its back.
-HALF_TURN_X = {"up": "down", "down": "up", "north": "south", "south": "north",
-               "east": "east", "west": "west"}
-HALF_TURN_Y = {"up": "up", "down": "down", "north": "south", "south": "north",
-               "east": "west", "west": "east"}
-HALF_TURN_Z = {"up": "down", "down": "up", "north": "north", "south": "south",
-               "east": "west", "west": "east"}
-QUARTER_TURN_X = {"up": "south", "down": "north", "north": "up",
-                  "south": "down", "east": "east", "west": "west"}
-NO_TURN = {name: name for name in OPPOSITE}
-# A quarter turn about the model's own Z, the axis the game spins a bed leg
-# and a shulker box about before setting either in its block.
-SPIN_Z = {"east": "up", "up": "west", "west": "down", "down": "east",
-          "north": "north", "south": "south"}
-MODEL_AXES = ("east", "up", "south")
-SIGNED_AXIS = {"east": (0, 1), "west": (0, -1), "up": (1, 1),
-               "down": (1, -1), "south": (2, 1), "north": (2, -1)}
-
-
-def after(first, second):
-    """The pose of a model turned by `first` and then by `second`."""
-    return {face: second[direction] for face, direction in first.items()}
-
-
-def spin_z(quarters):
-    pose = NO_TURN
-    for _ in range(quarters):
-        pose = after(pose, SPIN_Z)
-    return pose
-
-
-def turned_box(pose, lo, hi):
-    """Where a box given about its block's centre ends up once turned."""
-    low, high = [0.0] * 3, [0.0] * 3
-    for index, model_axis in enumerate(MODEL_AXES):
-        axis, sign = SIGNED_AXIS[pose[model_axis]]
-        low[axis], high[axis] = ((lo[index], hi[index]) if sign > 0
-                                 else (-hi[index], -lo[index]))
-    return tuple(v + 0.5 for v in low), tuple(v + 0.5 for v in high)
-
-
-# Banners and standing signs are drawn at two thirds scale, so one of their
-# model pixels is smaller than one of the block's.
-SMALL_SCALE = 2 / 3
-
-
-def _px(units):
-    """Model pixels of a two-thirds-scale entity, in blocks."""
-    return units * SMALL_SCALE / 16
-
-
-def cube_faces(offset, size):
-    """The six crops of one entity-model box, keyed by the box's own faces.
-
-    A box of w x h x d at (u, v) unwraps into a (2d + 2w) by (d + h)
-    rectangle: its underside and its top side by side along the upper edge,
-    then its four walls in a row beneath them, west to south. Straight out
-    of ModelPart.Cube -- handing box() a single crop instead stretches that
-    whole unwrap onto every face.
-    """
-    u, v = offset
-    w, h, d = size
-    return {
-        "down":  (u + d,             v,     u + d + w,           v + d),
-        "up":    (u + d + w,         v,     u + d + 2 * w,       v + d),
-        "west":  (u,                 v + d, u + d,               v + d + h),
-        "north": (u + d,             v + d, u + d + w,           v + d + h),
-        "east":  (u + d + w,         v + d, u + 2 * d + w,       v + d + h),
-        "south": (u + 2 * d + w,     v + d, u + 2 * d + 2 * w,   v + d + h),
-    }
-
-
-def unwrap(offset, size, pose):
-    """One box's crops, keyed by the world face each of its own faces lands
-    on, and the turn each of those needs to be read the way the game reads
-    it. A pose maps directions as well as faces, so the same table that says
-    where a face goes says where the image's own right and down go with it.
-    """
-    turns = {}
-    for model, world in pose.items():
-        right, down = (pose[axis] for axis in MODEL_UV[model])
-        turn = next(t for t, moved in TURNS.items()
-                    if moved(right, down) == WORLD_UV[world])
-        if turn is not None:
-            turns[world] = turn
-    crops = cube_faces(offset, size)
-    return {"faces": {pose[model]: crop for model, crop in crops.items()},
-            "turns": turns}
-
-
-def cube(origin, size, offset, texture, pose, **kwargs):
-    """A box placed and unwrapped in the model's own 1/16 units."""
-    lo = tuple(value / 16 for value in origin)
-    hi = tuple((o + s) / 16 for o, s in zip(origin, size))
-    return box(lo, hi, texture, **unwrap(offset, size, pose), **kwargs)
 
 
 def chest_texture(base, chest_type):
@@ -290,171 +126,6 @@ def chest(base, props):
     ]
 
 
-SIGN_LINES = 4
-# The game floats the text a hair off the board: 0.0467 of a block from the
-# board's own centre plane, against a board half a model pixel thick.
-TEXT_DEPTH = 0.08 / 16
-
-
-def sign_text_metrics(base):
-    """Blocks per text pixel, pixels between lines, and the widest line the
-    board takes. A hanging sign writes bigger letters on a smaller board, so
-    it fits fewer of them: the game's own numbers, not a scaled guess.
-    """
-    if "hanging_sign" in base:
-        return 0.9 / 64, 9, 60
-    return 1 / 96, 10, 90
-
-
-def _text_line_boxes(lines, board_lo, board_hi, face_z, direction, tint, angle, metrics):
-    scale, line_height, max_width = metrics
-    band = line_height * scale
-    middle_x = (board_lo[0] + board_hi[0]) / 2
-    middle_y = (board_lo[1] + board_hi[1]) / 2
-    z0, z1 = (face_z, face_z + TEXT_DEPTH) if direction > 0 else (face_z - TEXT_DEPTH, face_z)
-    outward = "south" if direction > 0 else "north"
-    boxes = []
-    for row, line in enumerate(lines[:SIGN_LINES]):
-        glyphs = [font.glyph(char) for char in line]
-        width = sum(advance for _, _, advance in glyphs) - 1 if glyphs else 0
-        # The game wraps a line too wide for its board; shrinking it keeps
-        # every character on the board instead of dropping the overflow.
-        line_scale = scale * min(1, max_width / width) if width > 0 else scale
-        top = middle_y + (SIGN_LINES / 2 - row) * band
-        bottom = top - font.HEIGHT * line_scale
-        cursor = middle_x - direction * width * line_scale / 2
-        for texture, crop, advance in glyphs:
-            if texture is not None:
-                edge = cursor + direction * (advance - 1) * line_scale
-                boxes.append(box(
-                    (min(cursor, edge), bottom, z0), (max(cursor, edge), top, z1),
-                    texture, tint=tint, angle=angle, faces={outward: crop},
-                ))
-            cursor += direction * advance * line_scale
-    return boxes
-
-
-def sign_text_boxes(content, board_lo, board_hi, angle, back, wall, metrics):
-    """The text on one or both sides of a board.
-
-    A standing board sits in the middle of its block and is read from the
-    high-z side; a wall board is pushed back against the block it hangs on,
-    so it is read from the low-z one. Reading the front off the wrong face
-    puts the text inside the wall, which looks like no text at all rather
-    than like a mistake.
-    """
-    sides = [("front_text", board_lo[2], -1)] if wall else [("front_text", board_hi[2], 1)]
-    if back:
-        sides.append(("back_text", board_lo[2], -1))
-    boxes = []
-    for side, face_z, direction in sides:
-        parsed = content.get(side)
-        if not parsed:
-            continue
-        lines, color, _glow = parsed
-        boxes.extend(_text_line_boxes(lines, board_lo, board_hi, face_z, direction,
-                                      DYES[color], angle, metrics))
-    return boxes
-
-
-def sign_board_bounds(base):
-    """The board's own box, and the pose its model is set in.
-
-    A sign has no block model -- the game draws it as an entity whose
-    geometry lives in code -- so these come from that code. A standing
-    board is the full width of its block and stands proud of the top; a
-    wall board is pushed back against the block it hangs on, which at yaw 0
-    means the far side, not the near one.
-    """
-    wall = "_wall_" in base
-    if "hanging_sign" in base:
-        return (1 / 16, 0, 7 / 16), (15 / 16, 10 / 16, 9 / 16), wall, HALF_TURN_X
-    # The board is 24 wide and 12 tall in its own pixels, hung on the block's
-    # centre; a wall one is then dropped 5/16 and pushed 7/16 back.
-    lo = (0, 0.5 + _px(2), 0.5 - _px(1))
-    hi = (1, 0.5 + _px(14), 0.5 + _px(1))
-    if wall:
-        lo = (lo[0], lo[1] - 5 / 16, lo[2] + 7 / 16)
-        hi = (hi[0], hi[1] - 5 / 16, hi[2] + 7 / 16)
-    return lo, hi, wall, HALF_TURN_Z if wall else HALF_TURN_X
-
-
-def _hanging_plane(texture, offset, origin, size, pivot, local_angle, angle):
-    radians = math.radians(local_angle)
-    cosine, sine = math.cos(radians), math.sin(radians)
-    x, y, z = origin
-    width, height, depth = size
-    corners = []
-    for px, py, pz in (
-        (x, y, z), (x + width, y, z), (x + width, y, z + depth), (x, y, z + depth),
-        (x, y + height, z), (x + width, y + height, z),
-        (x + width, y + height, z + depth), (x, y + height, z + depth),
-    ):
-        turned_x = px * cosine + pz * sine + pivot[0]
-        turned_z = -px * sine + pz * cosine + pivot[2]
-        model_y = py + pivot[1]
-        corners.append((.5 + turned_x / 16, .625 - model_y / 16,
-                        .5 - turned_z / 16))
-    lo = tuple(min(point[i] for point in corners) for i in range(3))
-    hi = tuple(max(point[i] for point in corners) for i in range(3))
-    crops = cube_faces(offset, size)
-    part = box(lo, hi, texture, angle=angle,
-               faces={face: crops[face] for face in ("north", "south")})
-    part["corners"] = corners
-    return part
-
-
-def sign(base, props, content=None):
-    hanging = "hanging_sign" in base
-    wood = base.split("_wall", 1)[0].split("_hanging", 1)[0].removesuffix("_sign")
-    texture = f"entity/signs/{'hanging/' if hanging else ''}{wood}"
-    angle = angle_for(props)
-    board_lo, board_hi, wall, pose = sign_board_bounds(base)
-    board_size = (14, 10, 2) if hanging else (24, 12, 2)
-    board_offset = (0, 12) if hanging else (0, 0)
-    result = [box(board_lo, board_hi, texture, angle=angle,
-                  **unwrap(board_offset, board_size, pose))]
-    if hanging:
-        ceiling = "_wall_" not in base
-        if not ceiling:
-            result.append(box((0, 14 / 16, 6 / 16), (1, 1, 10 / 16), texture,
-                              angle=angle, **unwrap((0, 0), (16, 2, 4), HALF_TURN_X)))
-        if ceiling and props.get("attached") == "true":
-            result.append(_hanging_plane(
-                texture, (14, 6), (-6, -6, 0), (12, 6, 0), (0, 0, 0), 0, angle,
-            ))
-        else:
-            segments = (
-                ((0, 6), (-5, -6, 0), -45), ((6, 6), (-5, -6, 0), 45),
-                ((0, 6), (5, -6, 0), -45), ((6, 6), (5, -6, 0), 45),
-            )
-            result.extend(_hanging_plane(
-                texture, offset, (-1.5, 0, 0), (3, 6, 0), pivot, turn, angle,
-            ) for offset, pivot, turn in segments)
-    elif not wall:
-        stick = _px(1)
-        result.append(box(
-            (0.5 - stick, 0, 0.5 - stick), (0.5 + stick, board_lo[1], 0.5 + stick),
-            texture, angle=angle, **unwrap((0, 14), (2, 14, 2), pose),
-        ))
-    if content:
-        result.extend(sign_text_boxes(content, board_lo, board_hi, angle,
-                                      not wall, wall, sign_text_metrics(base)))
-    return result
-
-
-def entity_decoration(name, props, content):
-    base = name.split(":", 1)[-1]
-    if base.endswith(("_sign", "_hanging_sign")):
-        sides = content[1] if content and content[0] == "sign" else None
-        if not sides:
-            return []
-        board_lo, board_hi, wall, _pose = sign_board_bounds(base)
-        return sign_text_boxes(dict(sides), board_lo, board_hi, angle_for(props),
-                               not wall, wall, sign_text_metrics(base))
-    return []
-
-
 def head(base, props):
     """A skull: one 8x8x8 cube, on the floor or pushed back against a wall."""
     wall = "_wall_" in base
@@ -468,10 +139,6 @@ def head(base, props):
     return [cube(origin, (8, 8, 8), (0, 0), texture, HALF_TURN_Z, angle=angle_for(props))]
 
 
-# Each bed leg is the same box spun about the bed's own upright before the
-# bed is laid down, and the laying down then carries the spin round with
-# everything else. The game gives each of the four a different quarter so
-# that one box definition serves all of them.
 BED_LEGS = {
     "head": ((0, 0, (50, 6), 1), (13, 0, (50, 18), 2)),
     "foot": ((0, 13, (50, 0), 0), (13, 13, (50, 12), 3)),
@@ -563,9 +230,7 @@ def banner(color, wall, angle, layers):
     for depth, (pattern, layer_color) in enumerate(layers, start=1):
         grown = depth * BANNER_LAYER_STEP
         lo, hi = cloth
-        # A pattern belongs on the cloth's two broad faces. Giving it the
-        # thin sides as well stacks every layer's edge in the same sliver
-        # of space, which z-fights along the whole outline.
+
         result.append(box(
             (lo[0], lo[1], lo[2] - grown), (hi[0], hi[1], hi[2] + grown),
             f"entity/banner/{pattern}", tint=DYES[layer_color], angle=angle,
@@ -578,9 +243,6 @@ def banner(color, wall, angle, layers):
     return result
 
 
-# Direction.getRotation(): the turn the game gives a shulker box before it
-# sticks it to the face it was placed on, on top of the half turn that
-# rights the model in the first place.
 SHULKER_SPIN = {
     "up": NO_TURN,
     "down": HALF_TURN_X,
@@ -589,9 +251,7 @@ SHULKER_SPIN = {
     "west": after(spin_z(1), QUARTER_TURN_X),
     "east": after(spin_z(3), QUARTER_TURN_X),
 }
-# Lid and base about the block's centre, once the model is the right way up:
-# a 16x12x16 lid closed over a 16x8x16 base, the pair a pixel shy of filling
-# the block so a boxful never quite touches its neighbour.
+
 SHULKER_PARTS = (
     (((-0.5, -0.25, -0.5), (0.5, 0.5, 0.5)), (0, 0), (16, 12, 16)),
     (((-0.5, -0.5, -0.5), (0.5, 0.0, 0.5)), (0, 28), (16, 8, 16)),
@@ -650,9 +310,7 @@ def decorated_pot(angle, sherds=None):
     ] + [
         box((near, 0, near), (far, 0, far), base, faces=disc, angle=angle),
         box((near, 1, near), (far, 1, far), base, faces=disc, angle=angle),
-        # Both neck boxes are deformed: the tube shrinks by a tenth of a
-        # pixel and the collar swells by a fifth, so neither shares a plane
-        # with the other or with the block's ceiling.
+
         box((4.1 / 16, 17.1 / 16, 4.1 / 16), (11.9 / 16, 19.9 / 16, 11.9 / 16), base,
             angle=angle, **unwrap((0, 0), (8, 3, 8), HALF_TURN_X)),
         box((4.8 / 16, 15.8 / 16, 4.8 / 16), (11.2 / 16, 17.2 / 16, 11.2 / 16), base,

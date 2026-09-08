@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image
 
 from structura_render.mesh import (
@@ -8,6 +9,31 @@ from structura_render.mesh import (
     uv_points_for_rect,
 )
 from structura_render.textures import WATER_ALPHA, TextureBank
+
+
+@pytest.mark.parametrize("neighbor, faces", [("stone", 5), ("glass", 6), ("water", 5)])
+def test_water_culls_only_shared_opaque_or_fluid_faces(tmp_path, neighbor, faces):
+    from types import SimpleNamespace
+    from structura_core.nbt import parse_state
+    from structura_render.assets import AssetContext
+    from structura_render.mesh import build_textured_geometry, voxel_state
+
+    images = tmp_path / "textures/block"
+    images.mkdir(parents=True)
+    for name in ("water_still", "water_flow", "stone", "glass"):
+        Image.new("RGBA", (16, 16), (100, 150, 200, 90 if name == "glass" else 255)).save(images / f"{name}.png")
+    source = SimpleNamespace(size=(2, 1, 1), present={(0, 0, 0): 0, (1, 0, 0): 1},
+                             palette=["minecraft:water", "minecraft:" + neighbor],
+                             palette_raw=[parse_state("minecraft:water"), parse_state("minecraft:" + neighbor)],
+                             block_nbt={}, entities=[])
+    state, solid, names, props = voxel_state(source)
+    geometry = build_textured_geometry(source, solid, state, names, props, TextureBank(AssetContext(tmp_path)))[0][0]
+    quads = geometry.points[geometry.quads]
+    water = quads[(quads[:, :, 0].max(axis=1) <= 1) & (quads[:, :, 0].min(axis=1) < 1)]
+    boundary = quads[(quads[:, :, 0] == 1).all(axis=1)]
+    assert len(water) == 5
+    assert len(boundary) == (2 if neighbor == "glass" else 1 if neighbor == "stone" else 0)
+    assert len(water) + (neighbor == "glass") == faces
 
 
 def test_atlas_deduplicates_equal_pixels_from_distinct_images():

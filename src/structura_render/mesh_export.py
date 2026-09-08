@@ -4,8 +4,8 @@ import numpy as np
 import trimesh
 from PIL import Image
 
-from .geometry import TexturedMesh
-from .mesh import material_groups, triangulate_quads, upscale_atlas
+from .atlas import upscale_atlas
+from .geometry import TexturedMesh, material_groups, triangulate_quads
 
 
 def export_parts(meshes, flat_groups, center):

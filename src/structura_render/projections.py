@@ -1,8 +1,6 @@
-#!/usr/bin/env python3
 """Render six colored diagnostic projections of a Structure NBT."""
+
 import argparse
-import colorsys
-import hashlib
 import math
 from os import PathLike
 from pathlib import Path
@@ -10,94 +8,27 @@ from typing import Iterable, Literal, Optional, Tuple, Union
 
 import numpy as np
 from PIL import Image, ImageDraw
-from structura_core import AIR_NAMES, Structure
-from structura_core.litematic import DEFAULT_MAX_BLOCKS
+from structura_core import Structure
+from structura_core.limits import DEFAULT_MAX_BLOCKS
 
+from .block_colours import (
+    COLORS as COLORS,
+    block_color as block_color,
+    family as family,
+)
 from .export_io import write_image
 from .legacy_input import load_structure
 from .overlays import ProjectionOverlays, draw_overlays, load_overlays
-
-VIEWS = {
-    "top": (1, True), "bottom": (1, False),
-    "north": (2, False), "south": (2, True),
-    "west": (0, False), "east": (0, True),
-}
-DEFAULT_MAX_PIXELS = 16_000_000
-
-COLORS = {
-    "air": (0, 0, 0),
-    "grass": (92, 151, 72),
-    "plant": (81, 132, 71),
-    "dirt": (133, 91, 57),
-    "sand": (210, 190, 133),
-    "log": (91, 62, 39),
-    "wood": (151, 105, 61),
-    "stone": (143, 149, 157),
-    "brick": (119, 123, 132),
-    "glass": (104, 188, 205),
-    "terracotta": (174, 112, 86),
-    "metal": (104, 112, 125),
-    "light": (244, 187, 68),
-}
-
-
-def family(name):
-    plant_parts = ("grass", "leaves", "flower", "sapling", "vine", "fern", "lichen")
-    if any(part in name for part in plant_parts):
-        return "plant" if "grass_block" not in name else "grass"
-    if any(part in name for part in ("dirt", "mud", "podzol", "mycelium")):
-        return "dirt"
-    if any(part in name for part in ("sand", "gravel")):
-        return "sand"
-    if any(part in name for part in ("_log", "_stem", "hyphae")):
-        return "log"
-    if any(part in name for part in ("planks", "wood", "fence", "door", "ladder")):
-        return "wood"
-    if "glass" in name:
-        return "glass"
-    if "terracotta" in name:
-        return "terracotta"
-    if any(part in name for part in ("brick", "cobble", "deepslate")):
-        return "brick"
-    if any(part in name for part in ("stone", "andesite", "diorite", "granite", "slate")):
-        return "stone"
-    if any(part in name for part in ("iron", "copper", "gold", "chain", "bars")):
-        return "metal"
-    if any(part in name for part in ("torch", "lantern", "light", "candle")):
-        return "light"
-    return None
-
-
-def block_color(name, mode):
-    group = family(name)
-    if mode == "family" and group:
-        return COLORS[group]
-    digest = hashlib.blake2b(name.encode(), digest_size=2).digest()
-    hue = int.from_bytes(digest, "big") / 65535
-    return tuple(round(value * 255) for value in colorsys.hsv_to_rgb(hue, 0.48, 0.78))
-
-
-def frontmost(states, axis, reverse):
-    data = np.moveaxis(states, axis, -1)
-    if reverse:
-        data = data[..., ::-1]
-    present = data >= 0
-    index = present.argmax(axis=-1)
-    result = np.take_along_axis(data, index[..., None], axis=-1)[..., 0]
-    result[~present.any(axis=-1)] = -1
-    return result
-
-
-def orient(image, view):
-    if view in ("top", "bottom"):
-        return image.T
-    if view == "north":
-        return image.T[::-1]
-    if view == "south":
-        return image.T[::-1, ::-1]
-    if view == "west":
-        return image[::-1]
-    return image[::-1, ::-1]
+from .projection_grid import (
+    DEFAULT_MAX_PIXELS as DEFAULT_MAX_PIXELS,
+    VIEWS as VIEWS,
+    check_pixels as _check_pixels,
+    depth_range as _depth_range,
+    frontmost as frontmost,
+    orient as orient,
+    projection_cells as projection_cells,
+    projection_size as _projection_size,
+)
 
 
 def render_view(states, palette, view, color_mode):
@@ -158,53 +89,6 @@ def compose(panels, output=None, caption=None):
     return canvas
 
 
-def _check_pixels(size, max_pixels):
-    if isinstance(max_pixels, bool) or not isinstance(max_pixels, int) or max_pixels <= 0:
-        raise ValueError("max_pixels must be a positive integer")
-    if math.prod(size) > max_pixels:
-        raise ValueError(f"image size {size} exceeds max_pixels={max_pixels:,}; reduce scale")
-
-
-def _projection_size(size, view, scale):
-    if view not in VIEWS:
-        raise ValueError(f"unknown view {view!r}; expected one of {tuple(VIEWS)}")
-    if isinstance(scale, bool) or not isinstance(scale, int) or scale < 1:
-        raise ValueError("scale must be a positive integer")
-    axis = VIEWS[view][0]
-    plane = tuple(size[i] for i in range(3) if i != axis)
-    width, height = plane[::-1] if axis == 0 else plane
-    return width * scale, height * scale
-
-
-def _depth_range(depth, size, axis):
-    if depth is None:
-        return 0, size[axis]
-    if (not isinstance(depth, (tuple, list)) or len(depth) != 2
-            or any(isinstance(v, (bool, np.bool_)) or not isinstance(v, (int, np.integer)) for v in depth)
-            or not 0 <= depth[0] < depth[1] <= size[axis]):
-        raise ValueError(f"depth must be (start, stop) with 0 <= start < stop <= {size[axis]} along {'XYZ'[axis]}")
-    return tuple(int(v) for v in depth)
-
-
-def projection_cells(src, view, depth=None):
-    axis, reverse = VIEWS[view]
-    start, stop = _depth_range(depth, src.size, axis)
-    plane_axes = tuple(i for i in range(3) if i != axis)
-    plane_size = tuple(src.size[i] for i in plane_axes)
-    visible = np.full(plane_size, -1, dtype=np.int32)
-    visible_depth = np.full(plane_size, -1 if reverse else src.size[axis], dtype=np.int64)
-    for pos, index in src.present.items():
-        if not start <= pos[axis] < stop:
-            continue
-        if src.palette[index] in AIR_NAMES or src.palette[index] == "minecraft:structure_void":
-            continue
-        cell = tuple(pos[i] for i in plane_axes)
-        closer = pos[axis] > visible_depth[cell] if reverse else pos[axis] < visible_depth[cell]
-        if closer:
-            visible[cell], visible_depth[cell] = index, pos[axis]
-    return orient(visible, view)
-
-
 def render_projection(source: Union[str, PathLike[str], Structure], *,
                       view: Literal["top", "bottom", "north", "south", "west", "east"] = "top",
                       scale: int = 16, color_mode: Literal["family", "block"] = "family",
@@ -215,6 +99,11 @@ def render_projection(source: Union[str, PathLike[str], Structure], *,
     if color_mode not in {"family", "block"}:
         raise ValueError("color_mode must be 'family' or 'block'")
     src = load_structure(source)
+    return _projection_image(src, view=view, scale=scale, color_mode=color_mode, transparent=transparent,
+                             max_pixels=max_pixels, overlays=overlays, depth=depth)
+
+
+def _projection_image(src, *, view, scale, color_mode, transparent, max_pixels, overlays, depth):
     size = _projection_size(src.size, view, scale)
     _check_pixels(size, max_pixels)
     visible = projection_cells(src, view, depth)
@@ -228,11 +117,7 @@ def render_projection(source: Union[str, PathLike[str], Structure], *,
         if transparent:
             canvas[present, 3] = 255
     if overlays is not None:
-        if not isinstance(overlays, ProjectionOverlays):
-            raise ValueError("overlays must be ProjectionOverlays")
-        axis = VIEWS[view][0]
-        start, stop = _depth_range(depth, src.size, axis)
-        canvas = draw_overlays(canvas, overlays, view, src.size, axis, orient, depth=(start, stop))
+        canvas = draw_overlays(canvas, overlays, view, src.size, depth=depth)
     return Image.fromarray(canvas).resize(size, Image.Resampling.NEAREST)
 
 
@@ -242,6 +127,8 @@ def render_projections(source: Union[str, PathLike[str], Structure], output: Opt
                        max_pixels: int = DEFAULT_MAX_PIXELS, overlays: Optional[ProjectionOverlays] = None,
                        depth: Optional[Tuple[int, int]] = None) -> Image.Image:
     """Return a sheet of named projections; optionally save it atomically."""
+    if color_mode not in {"family", "block"}:
+        raise ValueError("color_mode must be 'family' or 'block'")
     src = load_structure(source)
     views = tuple(views)
     sizes = [_projection_size(src.size, view, scale) for view in views]
@@ -250,8 +137,8 @@ def render_projections(source: Union[str, PathLike[str], Structure], output: Opt
     _, _, size = _layout([(w + 16, h + 38) for w, h in sizes])
     _check_pixels(size, max_pixels)
     panels = [
-        panel(np.asarray(render_projection(src, view=view, scale=1, color_mode=color_mode,
-                                           max_pixels=max_pixels, overlays=overlays, depth=depth)), view, scale)
+        panel(np.asarray(_projection_image(src, view=view, scale=1, color_mode=color_mode, transparent=False,
+                                            max_pixels=max_pixels, overlays=overlays, depth=depth)), view, scale)
         for view in views
     ]
     return compose(panels, output)

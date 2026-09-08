@@ -13,7 +13,7 @@ from structura_core import Structure, export_litematic, save_structure
 from structura_core.export_schematic import export_schematic
 
 from structura_render import block_model, textures
-from structura_render import AssetContext, export_structure
+from structura_render import AssetContext, RenderWarning, export_structure
 from structura_render.export_io import write_gltf, write_obj
 from structura_render.mesh import (
     build_textured_geometry,
@@ -250,6 +250,39 @@ def test_top_face_winding_retains_texture_orientation(assets):
         assert np.all(high > low.max())
 
 
+@pytest.mark.parametrize("face_rotation, block_rotation, locked, expected", [
+    (0, 0, False, (0, 0, 255)),
+    (90, 0, False, (255, 0, 0)),
+    (180, 0, False, (0, 255, 0)),
+    (270, 0, False, (255, 255, 0)),
+    (0, 90, True, (0, 0, 255)),
+    (0, 180, True, (0, 0, 255)),
+    (0, 270, True, (0, 0, 255)),
+])
+def test_face_rotation_and_uv_lock_keep_texture_corners(assets, face_rotation, block_rotation, locked, expected):
+    pixels = np.full((16, 16, 4), 255, dtype=np.uint8)
+    pixels[:8, :8, :3] = (255, 0, 0)
+    pixels[:8, 8:, :3] = (0, 255, 0)
+    pixels[8:, :8, :3] = (0, 0, 255)
+    pixels[8:, 8:, :3] = (255, 255, 0)
+    Image.fromarray(pixels).save(assets.context.root / "textures/block/stone.png")
+    path = assets.context.root / "models/block/stone.json"
+    model = json.loads(path.read_text())
+    model["elements"][0]["faces"]["up"]["rotation"] = face_rotation
+    path.write_text(json.dumps(model))
+    (assets.context.root / "blockstates/stone.json").write_text(json.dumps({
+        "variants": {"": {"model": "minecraft:block/stone", "y": block_rotation, "uvlock": locked}},
+    }))
+    src = structure("stone")
+    state, solid, names, props = voxel_state(src)
+    mesh = build_textured_geometry(src, solid, state, names, props, assets, strict=True)[0][0]
+    quad = next(q for q in mesh.quads if np.allclose(mesh.points[q, 1], 1))
+    corner = np.linalg.norm(mesh.points[quad] - (0, 1, 0), axis=1).argmin()
+    uv = .75 * mesh.uv[quad[corner]] + .25 * mesh.uv[quad].mean(axis=0)
+    x, y = int(uv[0] * mesh.image.shape[1]), int((1 - uv[1]) * mesh.image.shape[0])
+    assert tuple(mesh.image[y, x, :3]) == expected
+
+
 def test_mixed_scene_exports_distinct_alpha_modes(tmp_path, assets):
     parts = structure_export_parts(structure("stone", "cutout", "translucent"), assets)
     scene = trimesh.Scene()
@@ -290,6 +323,50 @@ def test_unresolved_model_does_not_silently_hide_a_block(assets, model):
     assert sum(len(part.faces) for _, part in parts) == 12
 
 
+def test_partially_missing_texture_keeps_model_surfaces_and_strict_output(tmp_path, assets):
+    path = assets.context.root / "models/block/stone.json"
+    model = json.loads(path.read_text())
+    model["elements"][0]["faces"]["up"]["texture"] = "minecraft:block/unavailable"
+    path.write_text(json.dumps(model))
+    src = structure("stone")
+    src.data_version = 3955
+    source = tmp_path / "source.nbt"
+    save_structure(src, source, src.size)
+    with pytest.warns(RenderWarning, match="missing texture"):
+        parts = structure_export_parts(src, assets)
+    assert any(part.visual.material.baseColorTexture is not None for _, part in parts)
+    stl = tmp_path / "closed.stl"
+    export_stl(parts, stl)
+    mesh = trimesh.load(stl, force="mesh")
+    assert mesh.is_watertight
+    assert mesh.volume == pytest.approx(1)
+    output = tmp_path / "previous.glb"
+    output.write_bytes(b"previous")
+    with pytest.raises(ValueError, match="missing texture"):
+        export_structure(source, output, texture_bank=assets, strict=True)
+    assert output.read_bytes() == b"previous"
+
+
+def test_post_fallback_resolves_the_blocks_resource_namespace(tmp_path):
+    namespace = tmp_path / "custom"
+    models = namespace / "models/block"
+    textures_path = namespace / "textures/block"
+    models.mkdir(parents=True)
+    textures_path.mkdir(parents=True)
+    (models / "ash_fence_post.json").write_text(json.dumps({"textures": {"particle": "custom:block/ash_planks"}}))
+    color = (201, 123, 45, 255)
+    Image.new("RGBA", (16, 16), color).save(textures_path / "ash_planks.png")
+    src = structure("ash_fence")
+    src.palette = ["custom:ash_fence"]
+    src.palette_raw = [CompoundTag({"Name": StringTag("custom:ash_fence")})]
+    bank = textures.TextureBank(AssetContext(tmp_path / "minecraft"))
+    state, solid, names, props = voxel_state(src)
+    meshes, _, indices, _ = build_textured_geometry(src, solid, state, names, props, bank, strict=True)
+    assert indices == {0}
+    assert len(meshes[0].quads) == 6
+    assert np.any(np.all(meshes[0].image == color, axis=2))
+
+
 def test_flat_fallback_keeps_transparency_and_two_sided_materials(tmp_path, assets):
     assets._read = lambda _name: None
     parts = structure_export_parts(structure("stone", "glass"), assets)
@@ -300,6 +377,34 @@ def test_flat_fallback_keeps_transparency_and_two_sided_materials(tmp_path, asse
     assert all(material["doubleSided"] for material in materials)
     glass = next(material for material in materials if material["alphaMode"] == "BLEND")
     assert 0 < glass["pbrMetallicRoughness"]["baseColorFactor"][3] < 1
+
+
+def test_flat_opaque_face_behind_glass_survives_both_exporters(tmp_path, assets):
+    from pxr import Usd, UsdGeom, UsdShade
+
+    src = structure("stone", "glass")
+    src.size = (2, 1, 1)
+    src.present = {(0, 0, 0): 0, (1, 0, 0): 1}
+    src.data_version = 3955
+    path = tmp_path / "source.nbt"
+    save_structure(src, path, src.size)
+    assets._read = lambda _name: None
+    glb = export_structure(path, tmp_path / "flat.glb", texture_bank=assets)
+    usd = export_structure(path, tmp_path / "flat.usda", texture_bank=assets)
+    scene = trimesh.load(glb, force="scene")
+    opaque = next(part for part in scene.geometry.values() if part.visual.material.alphaMode == "OPAQUE")
+    assert len(opaque.faces) == 12
+
+    stage = Usd.Stage.Open(str(usd))
+    opaque_meshes = []
+    for prim in stage.Traverse():
+        if prim.IsA(UsdGeom.Mesh):
+            material, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            shader = UsdShade.Shader.Get(stage, material.GetPath().AppendPath("PBRShader"))
+            if shader.GetInput("opacity").Get() == 1:
+                opaque_meshes.append(UsdGeom.Mesh(prim))
+    assert len(opaque_meshes) == 1
+    assert list(opaque_meshes[0].GetFaceVertexCountsAttr().Get()) == [4] * 6
 
 
 def test_obj_keeps_texture_brightness_and_flat_opacity(tmp_path, assets):

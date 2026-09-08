@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 
 from structura_render.usdz import (
-    add_flat_mesh, add_mesh, build_flat_material, build_material, face_normal,
-    package_usdz, unique_sided_quads,
+    add_flat_mesh, add_mesh, build_flat_material, build_material, package_usdz,
 )
 
 
@@ -19,18 +18,21 @@ def test_pixel_atlas_never_blends_with_transparent_neighbour_tiles():
 
 
 def test_coincident_faces_are_deduplicated_without_moving_their_edges():
+    stage = Usd.Stage.CreateInMemory()
+    root = Sdf.Path("/Model")
+    material = build_material(stage, root, "atlas.png")
     points = np.asarray([
         (0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
         (0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
         (0, 1, 0), (1, 1, 0), (1, 0, 0), (0, 0, 0),
     ], dtype=float)
-    quads = unique_sided_quads(points, [
-        (0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11),
-    ])
+    faces = np.column_stack((np.full(3, 4), np.arange(12).reshape(-1, 4))).ravel()
+    uv = points[:, :2]
+    mesh = add_mesh(stage, root, "Quad", points, faces, uv, material, (0, 0, 0))
 
-    assert len(quads) == 2
-    assert np.dot(face_normal(points, quads[0]), face_normal(points, quads[1])) < 0
-    assert set(map(tuple, points)) == {
+    assert mesh.GetFaceVertexCountsAttr().Get() == [4]
+    assert mesh.GetDoubleSidedAttr().Get()
+    assert set(map(tuple, mesh.GetPointsAttr().Get())) == {
         (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0),
     }

@@ -9,13 +9,13 @@ from typing import Literal, Optional, Union
 import numpy as np
 from PIL import Image
 from structura_core import Structure
-from structura_core.litematic import DEFAULT_MAX_BLOCKS
+from structura_core.limits import DEFAULT_MAX_BLOCKS
 
 from .camera import framing_distance, orthographic_scale
 from .diagnostics import RenderWarning
 from .export_io import write_image
 from .geometry import DEFAULT_MAX_ATLAS_SIZE, DEFAULT_MAX_VOXELS
-from .projections import DEFAULT_MAX_PIXELS, _check_pixels
+from .projection_grid import DEFAULT_MAX_PIXELS, check_pixels
 from .textures import TextureBank
 
 
@@ -33,7 +33,7 @@ def render_hero(source: Union[str, PathLike[str], Structure], output: Optional[U
     """Return a Pillow image from a path or Structure; optionally save it atomically."""
     if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
         raise ValueError("window must be a positive integer")
-    _check_pixels((window, window), max_pixels)
+    check_pixels((window, window), max_pixels)
     if not all(math.isfinite(v) for v in (azimuth, elevation, zoom)) or zoom <= 0:
         raise ValueError("camera angles must be finite and zoom must be finite and positive")
     if color_mode not in {"family", "block"}:
@@ -41,74 +41,28 @@ def render_hero(source: Union[str, PathLike[str], Structure], output: Optional[U
     import pyvista as pv
 
     from .legacy_input import load_structure
-    from .mesh import build_textured_meshes, flat_rgba, voxel_state
+    from .mesh import build_scene_geometry
     from .textures import MISSING_ASSETS_MESSAGE
 
     if not pv.system_supports_plotting():
         raise PlottingUnavailableError("no supported plotting backend")
     src = load_structure(source, strict=strict)
-    sx, sy, sz = src.size
-    state, solid, index_names, index_props = voxel_state(src, max_voxels=max_voxels)
-
-    textured_meshes, flat_entities, textured_indices = [], [], set()
+    bank = None
     if not no_textures:
         bank = texture_bank if texture_bank is not None else TextureBank()
         if not bank.available():
             raise ValueError(MISSING_ASSETS_MESSAGE)
-        textured_meshes, flat_entities, textured_indices, _ = build_textured_meshes(
-            src, solid, state, index_names, index_props, bank, max_atlas_size=max_atlas_size, strict=strict,
-        )
-    if not solid.any() and not textured_meshes and not flat_entities:
-        raise ValueError("structure produced no visible geometry")
-
-    colors = np.zeros((sx, sy, sz, 4), dtype=np.uint8)
-    flat_solid = np.zeros_like(solid)
-    for index, name in index_names.items():
-        if index in textured_indices:
-            continue
-        mask = state == index
-        flat_solid |= mask
-        colors[mask] = flat_rgba(name, color_mode)
-
-    if not flat_solid.any() and not textured_meshes and not flat_entities:
+    geometry = build_scene_geometry(src, bank, color_mode=color_mode, max_voxels=max_voxels,
+                                    max_atlas_size=max_atlas_size, strict=strict)
+    if not geometry:
         raise ValueError("structure produced no visible geometry")
 
     plotter = pv.Plotter(off_screen=True, window_size=(window, window))
     try:
         plotter.set_background("white")
         plotter.enable_depth_peeling(number_of_peels=12, occlusion_ratio=0.0)
-        if flat_solid.any():
-            grid = pv.ImageData(dimensions=(sx + 1, sy + 1, sz + 1))
-            grid.cell_data["solid"] = flat_solid.ravel(order="F")
-            grid.cell_data["color"] = colors.reshape(-1, 4, order="F")
-            plotter.add_mesh(
-                grid.threshold(0.5, scalars="solid"),
-                scalars="color", rgba=True, show_edges=False,
-            )
-        for mesh, texture in textured_meshes:
-            plotter.add_mesh(mesh, texture=texture)
-        for points, faces, color, alpha in flat_entities:
-            mesh = pv.PolyData(points, faces)
-            mesh.cell_data["color"] = np.tile((*color, alpha), (mesh.n_cells, 1)).astype(np.uint8)
-            plotter.add_mesh(mesh, scalars="color", rgba=True, show_edges=False)
-
-        bounds = np.asarray(plotter.bounds).reshape(3, 2)
-        center = bounds.mean(axis=1)
-        radius = framing_distance(bounds[:, 1] - bounds[:, 0], plotter.camera.view_angle)
-        azimuth, elevation = np.radians((azimuth, elevation))
-        offset = radius * np.array([
-            np.cos(elevation) * np.sin(azimuth),
-            np.sin(elevation),
-            np.cos(elevation) * np.cos(azimuth),
-        ])
-        plotter.camera.up = (0, 0, 1) if abs(np.cos(elevation)) < 1e-8 else (0, 1, 0)
-        plotter.camera.focal_point = tuple(center)
-        plotter.camera.position = tuple(center + offset)
-        if orthographic:
-            plotter.enable_parallel_projection()
-            plotter.camera.parallel_scale = orthographic_scale(bounds[:, 1] - bounds[:, 0])
-        plotter.camera.zoom(zoom)
-        plotter.reset_camera_clipping_range()
+        _add_geometry(plotter, geometry)
+        _frame_camera(plotter, azimuth, elevation, zoom, orthographic)
         pixels = plotter.screenshot(transparent_background=transparent, return_img=True)
         image = Image.fromarray(pixels)
         if output is not None:
@@ -116,6 +70,40 @@ def render_hero(source: Union[str, PathLike[str], Structure], output: Optional[U
         return image
     finally:
         plotter.close()
+
+
+def _add_geometry(plotter, geometry):
+    import pyvista as pv
+
+    for item in geometry.meshes:
+        mesh, texture = item.to_pyvista()
+        plotter.add_mesh(mesh, texture=texture)
+    for color, points, quads in geometry.flat_groups:
+        faces = np.column_stack((np.full(len(quads), 4), quads)).ravel()
+        mesh = pv.PolyData(np.asarray(points, dtype=np.float32), faces)
+        mesh.cell_data["color"] = np.tile(color, (mesh.n_cells, 1)).astype(np.uint8)
+        plotter.add_mesh(mesh, scalars="color", rgba=True, show_edges=False)
+
+
+def _frame_camera(plotter, azimuth, elevation, zoom, orthographic):
+    bounds = np.asarray(plotter.bounds).reshape(3, 2)
+    center = bounds.mean(axis=1)
+    size = bounds[:, 1] - bounds[:, 0]
+    radius = framing_distance(size, plotter.camera.view_angle)
+    azimuth, elevation = np.radians((azimuth, elevation))
+    offset = radius * np.array([
+        np.cos(elevation) * np.sin(azimuth),
+        np.sin(elevation),
+        np.cos(elevation) * np.cos(azimuth),
+    ])
+    plotter.camera.up = (0, 0, 1) if abs(np.cos(elevation)) < 1e-8 else (0, 1, 0)
+    plotter.camera.focal_point = tuple(center)
+    plotter.camera.position = tuple(center + offset)
+    if orthographic:
+        plotter.enable_parallel_projection()
+        plotter.camera.parallel_scale = orthographic_scale(size)
+    plotter.camera.zoom(zoom)
+    plotter.reset_camera_clipping_range()
 
 
 def main(argv=None):

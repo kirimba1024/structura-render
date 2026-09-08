@@ -15,6 +15,7 @@ from tempfile import TemporaryDirectory
 from typing import Iterator, Optional, Union
 
 _VERSION_MARKER_BLOCK = "heavy_core"
+
 _LAYOUT = 2
 
 
@@ -134,6 +135,7 @@ def _pack_data_root(assets_root):
 
 
 _active_context = ContextVar("structura_assets", default=None)
+
 _RESOURCE = re.compile(r"(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+\Z")
 
 
@@ -199,3 +201,8 @@ def __getattr__(name):
         context = current_context()
         return context.root if name == "ASSETS" else context.data
     raise AttributeError(name)
+
+
+def texture_asset(*stems):
+    return next((stem for stem in stems
+                 if (current_context().path("textures", stem, ".png")).is_file()), stems[0])

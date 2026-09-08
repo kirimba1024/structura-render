@@ -79,7 +79,12 @@ and 26.2. Choose client resources matching your structure.
 
 Textured exports fail when assets are missing. Diagnostic mesh exports can
 request `allow_flat_fallback=True` / `--allow-flat-fallback`; hero images use
-`no_textures=True` / `--no-textures`. These explicitly select coloured cubes.
+`no_textures=True` / `--no-textures`. Diagnostic hero images include flat entity
+geometry as well as coloured block cubes; technical invisible blocks stay hidden.
+If an individual special-block or entity texture is missing, its shape remains
+visible with a solid colour. The missing-texture notice still fails strict mode.
+Partly resolved JSON block models also retain missing-texture faces with flat
+colours; if none of their textures resolve, the complete-block fallback applies.
 
 ## 3D export and portability
 
@@ -115,7 +120,11 @@ other Amulet inputs are not verified.
 Textured mesh outputs share `geometry.TexturedMesh` (NumPy points, quads, UVs,
 alpha modes and RGBA atlas), built by `mesh.build_textured_geometry`.
 `to_pyvista()` adapts it for hero rendering; `build_textured_meshes` retains
-its existing PyVista interface. There is no separate editing/viewer framework.
+its existing PyVista interface. `mesh.build_scene_geometry(structure, bank)`
+also includes flat surfaces and returns `SceneGeometry(meshes, flat_groups)`.
+Pass `bank=None` for diagnostic geometry. Each `FlatMesh` has `color`, `points`
+and `quads` fields and also unpacks as a three-item tuple. Geometry stays in
+local structure coordinates; file exporters apply their centering separately.
 
 Client blockstates, multipart models, parent models, rotations and UV locking
 supply block geometry. Special blocks use textured models; entity rendering

@@ -38,6 +38,19 @@ def test_missing_assets_do_not_disable_projections(installation):
     assert report['assets']['error']
 
 
+def test_base_outputs_work_without_scipy_or_optional_backends(installation, monkeypatch):
+    packages = {'structura-core', 'structura-render', 'amulet-nbt', 'numpy', 'Pillow'}
+    monkeypatch.setattr(doctor, '_version', lambda package: '1.0' if package in packages else None)
+
+    report = doctor.diagnose(source=installation / 'missing')
+
+    for output in ('projections', 'svg', 'vox'):
+        assert report['outputs'][output] == {'status': 'dependencies_present', 'missing': []}
+    for output in ('usd', 'usda', 'usdc', 'usdz'):
+        assert report['outputs'][output]['missing'] == ['usd-core']
+        assert report['outputs'][output]['install'] == 'pip install "structura-render[usdz]"'
+
+
 def test_jar_is_inspected_without_extraction(installation):
     path = installation.parents[1] / 'client.jar'
     with ZipFile(path, 'w') as archive:

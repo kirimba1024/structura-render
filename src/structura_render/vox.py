@@ -9,10 +9,10 @@ from PIL import Image
 from structura_core import AIR_NAMES
 from structura_core.limits import DEFAULT_MAX_BLOCKS, check_volume
 
+from .block_colours import block_color
 from .diagnostics import RenderWarning
 from .export_io import atomic_write
 from .full_cube import is_full_cube_shape, is_opaque_shape
-from .projections import block_color
 
 
 def _ints(*values):

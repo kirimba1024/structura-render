@@ -86,6 +86,37 @@ def test_svg_caption_escapes_xml_and_counts_towards_pixel_limit(tmp_path):
         assert output.read_text() == "previous"
 
 
+def test_svg_element_limit_counts_the_complete_document(tmp_path):
+    src = source()
+    count = sum(1 for _ in ET.fromstring(render_svg(src, title="Plan")).iter())
+    assert ET.fromstring(render_svg(src, title="Plan", max_elements=count)) is not None
+    output = tmp_path / "plan.svg"
+    output.write_text("previous")
+    with pytest.raises(ValueError, match="max_elements"):
+        render_svg(src, output, title="Plan", max_elements=count - 1)
+    assert output.read_text() == "previous"
+
+
+def test_svg_contours_include_holes_and_disconnected_cells():
+    src = source((5, 1, 5))
+    src.present.clear()
+    mask = np.zeros(src.size, dtype=bool)
+    mask[1:4, 0, 1:4] = True
+    mask[2, 0, 2] = False
+    mask[0, 0, 0] = True
+    root = ET.fromstring(render_svg(src, overlays=ProjectionOverlays(envelope=mask)))
+    paths = root.findall("{*}g[@id='envelope']/{*}g/{*}path")
+    segments = {tuple(map(int, path.attrib["d"].replace("M", "").replace("L", " ").split()))
+                for path in paths}
+    assert sum(abs(x1 - x0) + abs(y1 - y0) for x0, y0, x1, y1 in segments) == 20
+    assert {(2, 2, 3, 2), (2, 3, 3, 3), (2, 2, 2, 3), (3, 2, 3, 3)} <= segments
+
+
+def test_svg_rejects_invalid_output_before_reading_input(tmp_path):
+    with pytest.raises(ValueError, match="SVG output"):
+        render_svg(tmp_path / "missing.nbt", tmp_path / "plan.png")
+
+
 def vox_chunks(data):
     assert data[:8] == b"VOX " + struct.pack("<i", 150)
     assert data[8:12] == b"MAIN"

@@ -53,7 +53,7 @@ def export_vox(src, output, *, max_blocks=DEFAULT_MAX_BLOCKS, strict=False):
     if src.entities:
         losses.append(f"{len(src.entities)} entity model(s) omitted")
     if len(set(colors)) > 255:
-        image = Image.fromarray(np.asarray([colors], dtype=np.uint8), "RGB")
+        image = Image.fromarray(np.asarray([colors], dtype=np.uint8))
         reduced = image.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
         colors = [tuple(color) for color in np.asarray(reduced.convert("RGB"))[0]]
         losses.append("colours quantized to at most 255 palette entries")

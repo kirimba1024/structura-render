@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+overview = ["meshoptimizer==0.2.30a0"]
 hero = ["pyvista>=0.46,<0.47"]
 usdz = ["usd-core>=26,<27"]
 gltf = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]

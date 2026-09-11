@@ -10,6 +10,8 @@ operations that need them.
 |---|---|
 | `geometry` | `TexturedMesh`, `FlatMesh`, `SceneGeometry`, cube coordinates, mask surfaces, triangulation and material grouping. |
 | `atlas` | Image deduplication, bounded atlas packing, padding and UV mapping. |
+| `lod_geometry` | Convert prepared surfaces to colored meshes, combine and simplify them with spatial tile boundary vertices locked. |
+| `mesh_simplifier` | Typed adapter to meshoptimizer's attribute-aware QEM API; optional dependency of the overview extra. |
 | `block_model` | Resolve blockstate/model JSON into textured faces. |
 | `block_geometry` | Voxel state, neighbor masks and approximate block shapes when model data is unavailable. |
 | `model_textures` | Resolve model textures and special-part crops into atlas tiles, preserving shapes when a texture is missing. |
@@ -25,11 +27,21 @@ operations that need them.
 emits ordinary model faces, special block faces, fallback shapes and entities.
 `QuadBuffer` owns vertex offsets, accumulated arrays and alpha classification.
 
+The overview uses the same exact model mesher for 16³ leaves. `lod_geometry`
+provides approximate colored parent meshes; it does not select camera detail.
+`atlas.merge_mesh_atlases` combines prepared textured meshes through the existing
+atlas packer, remapping UV coordinates without changing their sampled pixels.
+Snapshot persistence, memory selection and worker scheduling belong to the editor.
+
 Transparent full-cube neighbor culling groups states by block identity instead of
 palette index. Leaf species share one culling group, so differences in `distance`,
 `persistent` or species do not emit coincident internal faces. Glass/ice states and
 fluid levels likewise share the appropriate group; distinct materials retain their
 boundary. Model-backed and fallback geometry use the same neighbor rule.
+The water neighbor mask includes seagrass, both tall-seagrass halves, kelp and
+waterlogged states, so adjacent water does not emit internal faces around them.
+This mask only culls fluid faces; plant models and their cutout textures remain
+visible, and dry transparent blocks keep their boundary with water.
 Fallback shape functions receive the data needed by each shape family.
 
 `PreparedModels` groups resolved models. Each `SpecialModel` owns its palette
@@ -116,3 +128,7 @@ Tests cover atlas bounds, fallback connections, transparent faces, model UVs,
 entity placement, sign geometry and exports through installed wheels. When
 moving implementation functions, tests patch dependencies in their owning
 module while continuing to exercise the existing public entry points.
+
+## Вода в растениях и waterlogged-моделях
+
+`contains_water` определяет жидкость независимо от основной модели блока. SpecialModel хранит отдельную fluid-геометрию. Общие внутренние грани соседних жидкостей скрываются; внешние грани wet/waterlogged-клетки сохраняются даже у модели растения. Граница участка рендера использует halo соседей. Проверки сравнивают площадь, материалы и геометрию на всех шести внешних границах, а edit дополнительно проверяет стыки участков 16³/32³.

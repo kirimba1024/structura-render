@@ -25,6 +25,16 @@ FLOWER_NAMES = {
     "lilac", "rose_bush", "peony", "dead_bush", "sunflower",
 }
 
+WATER_FILLED_BLOCKS = {
+    "minecraft:water", "minecraft:bubble_column",
+    "minecraft:seagrass", "minecraft:tall_seagrass",
+    "minecraft:kelp", "minecraft:kelp_plant",
+}
+
+
+def contains_water(name, properties):
+    return name in WATER_FILLED_BLOCKS or properties.get("waterlogged") == "true"
+
 
 def is_cross(name):
     base = name.split(":", 1)[-1]
@@ -76,10 +86,17 @@ def voxel_state(src, *, max_voxels=DEFAULT_MAX_VOXELS):
     if math.prod(src.size) > max_voxels:
         raise ValueError(f"structure volume exceeds max_voxels={max_voxels:,}; choose a region or raise the limit")
     sx, sy, sz = src.size
-    state = np.full((sx, sy, sz), -1, dtype=np.int32)
-    for pos, index in src.present.items():
-        if src.palette[index] not in AIR_NAMES:
-            state[pos] = index
+    from structura_core.block_array import BlockArray
+
+    if isinstance(src.present, BlockArray):
+        state = src.present.array.copy()
+        air = [index for index, name in enumerate(src.palette) if name in AIR_NAMES]
+        state[np.isin(state, air)] = -1
+    else:
+        state = np.full((sx, sy, sz), -1, dtype=np.int32)
+        for pos, index in src.present.items():
+            if src.palette[index] not in AIR_NAMES:
+                state[pos] = index
     solid = state >= 0
 
     index_names, index_props = {}, {}
@@ -239,7 +256,7 @@ def block_masks(state, names, properties):
     water = np.zeros_like(occluder)
     lava = np.zeros_like(occluder)
     for index, name in names.items():
-        if name in ("minecraft:water", "minecraft:bubble_column"):
+        if contains_water(name, properties.get(index, {})):
             water |= state == index
         elif name == "minecraft:lava":
             lava |= state == index

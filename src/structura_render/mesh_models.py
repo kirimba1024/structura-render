@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .block_geometry import ARM_AXIS, is_post_family
+from .block_geometry import ARM_AXIS, contains_water, is_post_family
 from .block_model import block_elements, post_texture
 from .diagnostics import report_issue
 from .entities import structure_parts
@@ -15,6 +15,7 @@ class SpecialModel:
     index: int
     positions: np.ndarray
     parts: list[dict]
+    fluid: str = ""
 
 
 @dataclass
@@ -75,6 +76,9 @@ def prepare_models(src, state, index_names, index_props, bank, atlas):
     textures = ModelTextures(bank, atlas)
     for index, name in index_names.items():
         props = index_props.get(index, {})
+        if contains_water(name, props) and name not in ("minecraft:water", "minecraft:bubble_column"):
+            water = textures.parts(entity_shape("minecraft:water", {}))
+            models.specials.append(SpecialModel(index, np.argwhere(state == index), water, "minecraft:water"))
         post = is_post_family(name) and not all(direction in props for direction in ARM_AXIS)
         if post:
             faces = _fallback_faces(name, bank, atlas, post=True)

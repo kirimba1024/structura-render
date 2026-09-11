@@ -126,7 +126,7 @@ class TextureBank:
         if image is not None and alpha < 255:
             values = np.asarray(image).copy()
             values[..., 3] = values[..., 3].astype(np.uint16) * alpha // 255
-            image = Image.fromarray(values, "RGBA")
+            image = Image.fromarray(values)
         self._asset_cache[key] = image
         if image is None:
             report_issue("missing texture", stem)
@@ -174,7 +174,7 @@ class TextureBank:
         for i in range(22):
             x, y = (i * 7 + 3) % 16, (i * 11 + i // 3) % 16
             image[y, x] = colors[i % len(colors)]
-        return Image.fromarray(image, "RGBA")
+        return Image.fromarray(image)
 
     def _read(self, stem):
         if stem in self._cache:

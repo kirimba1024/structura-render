@@ -149,7 +149,7 @@ def _emit_specials(models, index_names, masks, buffer):
     own = np.zeros_like(masks.occluder)
     for model in models.specials:
         own[tuple(model.positions.T)] = True
-        name = index_names[model.index]
+        name = model.fluid or index_names[model.index]
         neighbors = (masks.water if name in ("minecraft:water", "minecraft:bubble_column") else
                      masks.lava if name == "minecraft:lava" else own)
         for part in model.parts:

@@ -4,7 +4,7 @@ import math
 import numpy as np
 from PIL import Image
 
-from .geometry import DEFAULT_MAX_ATLAS_SIZE
+from .geometry import DEFAULT_MAX_ATLAS_SIZE, TexturedMesh
 
 
 class Atlas:
@@ -135,6 +135,42 @@ def atlas_uv(rect, uv):
 def map_uv(rect, points):
     u0, u1, v0, v1 = rect
     return (np.asarray(points) * (u1 - u0, v1 - v0) + (u0, v0)).astype(np.float32)
+
+
+def merge_mesh_atlases(meshes, max_size=DEFAULT_MAX_ATLAS_SIZE):
+    result, group, area = [], [], 0
+
+    def finish(parts):
+        if len(parts) < 2:
+            return parts
+        atlas = Atlas(max_size)
+        slots = [atlas.add(Image.fromarray(mesh.image)) for mesh in parts]
+        try:
+            image, rects = atlas.build()
+        except ValueError:
+            return parts
+        points, quads, uv, modes = [], [], [], []
+        count = 0
+        for mesh, slot in zip(parts, slots):
+            points.append(mesh.points)
+            quads.append(mesh.quads + count)
+            uv.append(map_uv(rects[slot], mesh.uv))
+            modes.append(mesh.alpha_modes)
+            count += len(mesh.points)
+        return [TexturedMesh(np.concatenate(points), np.concatenate(quads), np.concatenate(uv), np.concatenate(modes), image)]
+
+    for mesh in meshes:
+        height, width = mesh.image.shape[:2]
+        size = (height + 4) * (width + 4)
+        if group and area + size > max_size**2 // 2:
+            result.extend(finish(group))
+            group, area = [], 0
+        if max(height, width) + 4 > max_size:
+            result.append(mesh)
+        else:
+            group.append(mesh)
+            area += size
+    return result + finish(group)
 
 
 def cropped_uv(rect, direction, lo, hi):

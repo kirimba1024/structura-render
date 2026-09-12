@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.8.1"
+version = "0.8.2"
 description = "Minecraft PNG/SVG rendering and 3D export (USD/USDZ, glTF, OBJ, STL, VOX)"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-  "structura-core>=0.6.1,<0.7",
+  "structura-core>=0.6.2,<0.7",
   "numpy>=1.26,<3",
   "Pillow>=11,<12",
 ]
@@ -21,8 +21,8 @@ usdz = ["usd-core>=26,<27"]
 gltf = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]
 obj = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]
 stl = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]
-legacy = ["structura-core[legacy]>=0.6.1,<0.7"]
-bedrock = ["structura-core[bedrock]>=0.6.1,<0.7"]
+legacy = ["structura-core[legacy]>=0.6.2,<0.7"]
+bedrock = ["structura-core[bedrock]>=0.6.2,<0.7"]
 
 [project.scripts]
 structura-render = "structura_render.__main__:main"

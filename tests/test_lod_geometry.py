@@ -1,8 +1,20 @@
 import numpy as np
 import pytest
 
-from structura_render.geometry import mask_surface, triangulate_quads
-from structura_render.lod_geometry import LodMesh, simplify_lod
+from structura_render.geometry import TexturedMesh, mask_surface, triangulate_quads
+from structura_render.lod_geometry import LodMesh, average_rgba, colored_geometry, simplify_lod
+
+
+def test_far_colors_preserve_linear_brightness_and_cutout_density():
+    image = np.array([[(0, 0, 0, 255), (255, 255, 255, 255)]], np.uint8)
+    assert tuple(average_rgba(image)) == (188, 188, 188, 255)
+    image[0, 0] = (255, 0, 0, 0)
+    assert tuple(average_rgba(image)) == (255, 255, 255, 128)
+    points = np.array(((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)), np.float32)
+    mesh = TexturedMesh(points, np.array(((0, 1, 2, 3),)), points[:, :2], np.array([1], np.uint8), image)
+    assert (colored_geometry([mesh], []).colors[:, 3] == 255).all()
+    mesh.alpha_modes[:] = 2
+    assert (colored_geometry([mesh], []).colors[:, 3] == 128).all()
 
 
 def test_simplification_preserves_all_spatial_boundary_vertices():

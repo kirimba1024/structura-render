@@ -67,7 +67,7 @@ jobs:
           python - <<'PYTHON'
           import pathlib, subprocess, sys
           wheel = next(pathlib.Path("dist").glob("*.whl"))
-          subprocess.check_call([sys.executable, "-m", "pip", "install", f"{wheel}[hero,usdz,gltf,obj,stl,legacy]"])
+          subprocess.check_call([sys.executable, "-m", "pip", "install", f"{wheel}[hero,usdz,gltf,obj,stl,legacy,bedrock,overview]"])
           PYTHON
       - name: Check installed package location
         run: python -c "import importlib.metadata, structura_render; assert structura_render.__version__ == importlib.metadata.version('structura-render'); assert 'site-packages' in structura_render.__file__, structura_render.__file__"
@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        extra: [base, hero, usdz, gltf, obj, stl, bedrock]
+        extra: [base, hero, usdz, gltf, obj, stl, bedrock, overview]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -104,6 +104,9 @@ jobs:
           if extra in {"base", "bedrock"}:
               for module in ("projections", "svg", "vox"):
                   importlib.import_module(f"structura_render.{module}")
+          elif extra == "overview":
+              importlib.import_module("structura_render.lod_geometry")
+              importlib.import_module("meshoptimizer")
           else:
               importlib.import_module("structura_render.mesh")
               importlib.import_module(f"structura_render.{extra}")
@@ -120,7 +123,7 @@ jobs:
           else:
               assert importlib.util.find_spec("pyvista") is None
               assert importlib.util.find_spec("vtkmodules") is None
-          if extra in {"base", "hero", "usdz", "bedrock"}:
+          if extra in {"base", "hero", "usdz", "bedrock", "overview"}:
               assert importlib.util.find_spec("trimesh") is None
           PYTHON
       - name: Verify base integration without analysis or graphics dependencies

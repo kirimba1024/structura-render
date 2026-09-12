@@ -2,8 +2,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .geometry import triangulate_quads
+from .geometry import ALPHA_MODES, triangulate_quads
 from .atlas import uv_pixel_bounds
+from .color_space import linear_to_srgb, srgb_to_linear
 
 
 @dataclass
@@ -24,7 +25,8 @@ def empty_lod():
 def average_rgba(image):
     pixels = np.asarray(image, dtype=np.float64).reshape(-1, 4)
     alpha = pixels[:, 3]
-    color = np.average(pixels[:, :3], axis=0, weights=alpha) if alpha.sum() else np.zeros(3)
+    linear = srgb_to_linear(pixels[:, :3] / 255)
+    color = linear_to_srgb(np.average(linear, axis=0, weights=alpha)) * 255 if alpha.sum() else np.zeros(3)
     return np.rint(np.append(color, alpha.mean())).astype(np.uint8)
 
 
@@ -33,12 +35,14 @@ def colored_geometry(meshes, flat):
     for mesh in meshes:
         colors = np.zeros((len(mesh.points), 4), np.uint8)
         cache = {}
-        for quad in mesh.quads:
+        for quad, mode in zip(mesh.quads, mesh.alpha_modes):
             bounds = uv_pixel_bounds(mesh.image, mesh.uv[quad])
             if bounds not in cache:
                 x0, y0, x1, y1 = bounds
                 cache[bounds] = average_rgba(mesh.image[y0:y1, x0:x1])
             colors[quad] = cache[bounds]
+            if ALPHA_MODES[mode] != 'BLEND':
+                colors[quad, 3] = 255
         parts.append(LodMesh(mesh.points, triangulate_quads(mesh.quads), colors))
     for points, faces, color in flat:
         quads = np.asarray(faces).reshape(-1, 5)[:, 1:]
@@ -90,9 +94,12 @@ def simplify_lod(mesh, span, *, target_ratio=0.35, error=0.5):
         positions, inverse = np.unique(mesh.points[used], axis=0, return_inverse=True)
         positions = np.ascontiguousarray(positions, np.float32)
         colors = np.zeros((len(positions), 4), np.float64)
-        np.add.at(colors, inverse, mesh.colors[used])
+        samples = mesh.colors[used].astype(np.float64) / 255
+        samples[:, :3] = srgb_to_linear(samples[:, :3])
+        np.add.at(colors, inverse, samples)
         colors /= np.bincount(inverse)[:, None]
-        colors = np.rint(colors).astype(np.uint8)
+        colors[:, :3] = linear_to_srgb(colors[:, :3])
+        colors = np.rint(colors * 255).astype(np.uint8)
         triangles = inverse[indices].reshape(-1, 3).astype(np.uint32)
         valid = ((triangles[:, 0] != triangles[:, 1]) & (triangles[:, 1] != triangles[:, 2])
                  & (triangles[:, 0] != triangles[:, 2]))

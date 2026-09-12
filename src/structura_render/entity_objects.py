@@ -290,7 +290,7 @@ def boat_parts(nbt, *, wood=None, chest=False):
 
 
 def minecart_parts(nbt):
-    texture = _asset("entity/minecart/minecart")
+    texture = _asset("entity/minecart/minecart", "entity/minecart")
     return model_parts(
         "minecart", nbt, texture, layer="MINECART", ground=True, angle=_yaw(nbt),
     ) or marker_parts(nbt)

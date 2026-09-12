@@ -132,5 +132,7 @@ def test_transparent_neighbor_states_do_not_emit_coincident_internal_faces(tmp_p
     state, solid, names, props = voxel_state(source)
     geometry = build_textured_geometry(source, solid, state, names, props, TextureBank(AssetContext(tmp_path)))[0][0]
     quads = geometry.points[geometry.quads]
-    assert not (quads[:, :, 0] == 1).all(axis=1).any()
-    assert len(quads) == 10
+    internal = (quads[:, :, 0] == 1).all(axis=1)
+    leaves = first.split("[", 1)[0].endswith("_leaves")
+    assert np.count_nonzero(internal) == int(leaves)
+    assert len(quads) == 10 + int(leaves)

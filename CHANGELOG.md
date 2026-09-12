@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.2
+
+- Require core 0.6.2 and publish the geometry APIs used by Structura Edit 0.1.0a2.
+- Add bounded polygonal overview geometry with the optional native QEM backend,
+  material-separated render packets and linear-light overview colours.
+- Preserve leaf interiors and water-filled surfaces, composite coincident model
+  layers and support particle textures and entity map icons.
+- Keep exact textured models and fallback geometry consistent across previews
+  and exports; support the legacy minecart texture layout.
+
 ## 0.8.1
 
 - Require core 0.6.1 and align diagnostics with its SciPy-free base install.

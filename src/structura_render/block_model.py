@@ -187,6 +187,18 @@ def post_texture(name):
 
 
 @safe
+def particle_texture(name, props):
+    blockstate = load_blockstate(name)
+    if blockstate is not None:
+        for entry in selected_models(blockstate, props):
+            model = resolve_model(entry["model"])
+            texture = resolve_texture(model["textures"].get("particle"), model["textures"])
+            if texture is not None:
+                return texture
+    return None
+
+
+@safe
 def block_elements(name, props):
     blockstate = load_blockstate(name)
     if blockstate is None:

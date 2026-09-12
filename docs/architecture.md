@@ -32,10 +32,15 @@ provides approximate colored parent meshes; it does not select camera detail.
 `atlas.merge_mesh_atlases` combines prepared textured meshes through the existing
 atlas packer, remapping UV coordinates without changing their sampled pixels.
 Snapshot persistence, memory selection and worker scheduling belong to the editor.
+`packets` separates materials and compacts/splits immutable geometry into bounded
+float32/int32 buffers before any GUI/backend call. It contains no Qt/VTK dependency.
+`color_space` shares the linear/sRGB conversion used for HLOD colors and map reduction.
+Cutout parent surfaces stay opaque; true blend retains averaged alpha.
 
 Transparent full-cube neighbor culling groups states by block identity instead of
-palette index. Leaf species share one culling group, so differences in `distance`,
-`persistent` or species do not emit coincident internal faces. Glass/ice states and
+palette index. A shared leaf plane is retained once, rather than removed from both
+sides or emitted twice; this preserves canopy density without coplanar overlap.
+Differences in `distance`, `persistent` or species do not duplicate it. Glass/ice states and
 fluid levels likewise share the appropriate group; distinct materials retain their
 boundary. Model-backed and fallback geometry use the same neighbor rule.
 The water neighbor mask includes seagrass, both tall-seagrass halves, kelp and
@@ -43,6 +48,8 @@ waterlogged states, so adjacent water does not emit internal faces around them.
 This mask only culls fluid faces; plant models and their cutout textures remain
 visible, and dry transparent blocks keep their boundary with water.
 Fallback shape functions receive the data needed by each shape family.
+Coplanar model base/overlay faces with matching UV are composited into one texture
+before emission. This avoids grass overlays fighting their base quad.
 
 `PreparedModels` groups resolved models. Each `SpecialModel` owns its palette
 index, integer instance positions and parts. NBT variants retain only their

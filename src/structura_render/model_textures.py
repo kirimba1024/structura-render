@@ -37,21 +37,34 @@ class ModelTextures:
         return self.block_tiles[key]
 
     def faces(self, elements, name, props):
-        resolved = []
+        layers = {}
         for element in elements:
             for face in element["faces"].values():
                 tint = tint_for(name, props) if face["tinted"] else None
-                resolved.append((face, self.block_tile(face["texture"], tint)))
-        if not any(tile is not None for _, tile in resolved):
+                key = (tuple(map(tuple, face["vertices"])), tuple(face["uv"]), face["uv_rotation"],
+                       tuple(face.get("uv_order", (0, 1, 2, 3))), face["cullface"])
+                layers.setdefault(key, []).append((face, self.block_tile(face["texture"], tint)))
+        if not any(tile is not None for group in layers.values() for _, tile in group):
             return []
         result = []
         fallback = None
-        for face, tile in resolved:
-            if tile is None:
-                if fallback is None:
-                    fallback = self.atlas.add(Image.new("RGBA", (1, 1), flat_rgba(name)))
-                tile = fallback
-            result.append(_model_face(face, tile))
+        for group in layers.values():
+            tiles = []
+            for face, tile in group:
+                if tile is None:
+                    if fallback is None:
+                        fallback = self.atlas.add(Image.new("RGBA", (1, 1), flat_rgba(name)))
+                    tile = fallback
+                tiles.append(tile)
+            tile = tiles[0]
+            if len(tiles) > 1:
+                images = [self.atlas.images[index] for index in tiles]
+                size = tuple(max(image.size[axis] for image in images) for axis in (0, 1))
+                combined = Image.new("RGBA", size)
+                for image in images:
+                    combined.alpha_composite(image.resize(size, Image.Resampling.NEAREST))
+                tile = self.atlas.add(combined)
+            result.append(_model_face(group[0][0], tile))
         return result
 
     def special_tile(self, part, crop, turn=None):

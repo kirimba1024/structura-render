@@ -131,7 +131,7 @@ class QuadBuffer:
 
 
 def _emit_models(blocks, state, names, occluder, buffer):
-    from .block_geometry import surface_neighbors
+    from .block_geometry import LEAF_INTERIOR_FACES, surface_neighbors
 
     for index, faces in blocks.items():
         own = state == index
@@ -139,7 +139,8 @@ def _emit_models(blocks, state, names, occluder, buffer):
             continue
         neighbors = surface_neighbors(state, index, names, occluder, own)
         for face in faces:
-            mask = exposed_mask(own, neighbors, face.cullface) if face.cullface else own
+            solid = occluder if names[index].endswith("_leaves") and face.cullface in LEAF_INTERIOR_FACES else neighbors
+            mask = exposed_mask(own, solid, face.cullface) if face.cullface else own
             pos = np.argwhere(mask).astype(np.float32)
             uv = map_uv(buffer.rects[face.rect_index], face.uv)
             buffer.append(pos, face.vertices, uv)

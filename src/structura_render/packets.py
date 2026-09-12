@@ -55,3 +55,20 @@ def textured_packets(mesh):
         mode = ALPHA_MODES[int(value)]
         yield from polygon_packets(mesh.points, mesh.quads[mesh.alpha_modes == value], mode,
                                    uv=mesh.uv, image=mesh.image, texture_key=identity, cull=mode != "BLEND")
+
+
+def lod_packets(mesh, span=16):
+    from .lod_rectangles import rectangle_pairs
+
+    quads, _, rectangular = rectangle_pairs(mesh.points, mesh.triangles)
+    colors = mesh.colors[quads]
+    selected = rectangular & (colors == colors[:, :1]).all(axis=(1, 2))
+    retained = np.r_[np.repeat(~selected, 2), np.ones(len(mesh.triangles) % 2, bool)]
+    for indices in (quads[selected], mesh.triangles[retained]):
+        if not len(indices):
+            continue
+        cells = np.floor(mesh.points[indices].mean(axis=1) / span).astype(np.int64)
+        indices = indices[np.lexsort((cells[:, 2], cells[:, 1], cells[:, 0]))]
+        opaque = (mesh.colors[indices, 3] == 255).all(axis=1)
+        for mask, mode in ((opaque, 'OPAQUE'), (~opaque, 'BLEND')):
+            yield from polygon_packets(mesh.points, indices[mask], mode, colors=mesh.colors, cull=mode == 'OPAQUE')

@@ -38,21 +38,29 @@ def rectangle_points(rectangles):
     return points.reshape(-1, 3)
 
 
-def merge_rectangles(points, triangles, colors, span, target_ratio):
+def rectangle_pairs(points, triangles):
     count = len(triangles) // 2
     pairs = triangles[:count * 2].reshape(-1, 2, 3)
     quads = np.column_stack((pairs[:, 0], pairs[:, 1, 2]))
-    corners, shades = points[quads], colors[quads]
+    corners = points[quads]
     lower, upper = corners.min(axis=1), corners.max(axis=1)
     normals = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
     second = np.cross(corners[:, 2] - corners[:, 0], corners[:, 3] - corners[:, 0])
     paired = (pairs[:, 0, 0] == pairs[:, 1, 0]) & (pairs[:, 0, 2] == pairs[:, 1, 1])
     rectangular = ((np.count_nonzero(normals, axis=1) == 1) & (normals == second).all(axis=1)
                    & ((corners == lower[:, None]) | (corners == upper[:, None])).all(axis=(1, 2)))
+    return quads, normals, paired & rectangular
+
+
+def merge_rectangles(points, triangles, colors, span, target_ratio):
+    quads, normals, rectangular = rectangle_pairs(points, triangles)
+    count = len(quads)
+    corners, shades = points[quads], colors[quads]
+    lower, upper = corners.min(axis=1), corners.max(axis=1)
     uniform = (shades == shades[:, :1]).all(axis=(1, 2))
     boundary = (np.isclose(corners, 0, atol=1e-6, rtol=0)
                 | np.isclose(corners, span, atol=1e-6, rtol=0)).any(axis=(1, 2))
-    eligible = paired & rectangular & uniform & ~boundary
+    eligible = rectangular & uniform & ~boundary
     selected = np.flatnonzero(eligible)
     if not len(selected):
         return compact_geometry(points, triangles, colors)

@@ -39,6 +39,10 @@ and neighboring seams across six hierarchy levels. This follows
 The [blocky LOD analysis](https://0fps.net/2018/03/03/a-level-of-detail-method-for-blocky-voxels/)
 explains quantized geometry and seams; this implementation does not use POP geomorphing.
 The historical overview extra remains installable without a native simplifier.
+`packets.lod_packets` preserves uniform axis-aligned rectangles as quads, orders
+polygons spatially and splits OPAQUE/BLEND before bounded packet generation.
+Unpaired, degenerate, nonrectangular or gradient-coloured triangles retain their
+original triangulation. The shared rectangle recognizer also serves LOD merging.
 `atlas.merge_mesh_atlases` combines prepared textured meshes through the existing
 atlas packer, remapping UV coordinates without changing their sampled pixels.
 Snapshot persistence, memory selection and worker scheduling belong to the editor.

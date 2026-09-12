@@ -8,8 +8,8 @@
   surface models from fighting in the depth buffer.
 - Preserve both correctly oriented leaf interior faces and resolve the legacy
   bat texture path used by Minecraft 1.21.1.
-- Order overview triangles spatially before packet splitting to reduce
-  duplicated vertices without changing surfaces or colours.
+- Preserve uniform rectangular overview faces as quads through packet splitting,
+  ordered spatially to reduce indices, duplicated vertices and actor count.
 
 ## 0.8.2
 

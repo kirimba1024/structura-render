@@ -104,7 +104,7 @@ def test_atlas_overflow_rejected_before_output_allocation(monkeypatch):
     ("ice", "ice[custom=true]"),
     ("water[level=0]", "water[level=1]"),
 ])
-def test_transparent_neighbor_states_do_not_emit_coincident_internal_faces(tmp_path, model, first, second):
+def test_transparent_neighbors_keep_opposing_leaf_faces_and_cull_glass(tmp_path, model, first, second):
     import json
     from types import SimpleNamespace
     from structura_core import parse_state
@@ -134,5 +134,9 @@ def test_transparent_neighbor_states_do_not_emit_coincident_internal_faces(tmp_p
     quads = geometry.points[geometry.quads]
     internal = (quads[:, :, 0] == 1).all(axis=1)
     leaves = first.split("[", 1)[0].endswith("_leaves")
-    assert np.count_nonzero(internal) == int(leaves)
-    assert len(quads) == 10 + int(leaves)
+    assert np.count_nonzero(internal) == 2 * int(leaves)
+    assert len(quads) == 10 + 2 * int(leaves)
+    if leaves:
+        faces = quads[internal]
+        normals = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
+        np.testing.assert_array_equal(normals[0], -normals[1])

@@ -54,4 +54,4 @@ def textured_packets(mesh):
     for value in np.unique(mesh.alpha_modes):
         mode = ALPHA_MODES[int(value)]
         yield from polygon_packets(mesh.points, mesh.quads[mesh.alpha_modes == value], mode,
-                                   uv=mesh.uv, image=mesh.image, texture_key=identity, cull=mode == "OPAQUE")
+                                   uv=mesh.uv, image=mesh.image, texture_key=identity, cull=mode != "BLEND")

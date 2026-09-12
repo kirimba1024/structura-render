@@ -106,7 +106,7 @@ jobs:
                   importlib.import_module(f"structura_render.{module}")
           elif extra == "overview":
               importlib.import_module("structura_render.lod_geometry")
-              importlib.import_module("meshoptimizer")
+              importlib.import_module("structura_render.lod_rectangles")
           else:
               importlib.import_module("structura_render.mesh")
               importlib.import_module(f"structura_render.{extra}")

@@ -10,8 +10,8 @@ operations that need them.
 |---|---|
 | `geometry` | `TexturedMesh`, `FlatMesh`, `SceneGeometry`, cube coordinates, mask surfaces, triangulation and material grouping. |
 | `atlas` | Image deduplication, bounded atlas packing, padding and UV mapping. |
-| `lod_geometry` | Convert prepared surfaces to colored meshes, combine and simplify them with spatial tile boundary vertices locked. |
-| `mesh_simplifier` | Typed adapter to meshoptimizer's attribute-aware QEM API; optional dependency of the overview extra. |
+| `lod_geometry` | Convert surfaces to colors, combine them and spatially order triangles for bounded packets. |
+| `lod_rectangles` | Lossless coplanar rectangle merging with exact tile boundaries and hard color edges. |
 | `block_model` | Resolve blockstate/model JSON into textured faces. |
 | `block_geometry` | Voxel state, neighbor masks and approximate block shapes when model data is unavailable. |
 | `model_textures` | Resolve model textures and special-part crops into atlas tiles, preserving shapes when a texture is missing. |
@@ -28,7 +28,17 @@ emits ordinary model faces, special block faces, fallback shapes and entities.
 `QuadBuffer` owns vertex offsets, accumulated arrays and alpha classification.
 
 The overview uses the same exact model mesher for 16³ leaves. `lod_geometry`
-provides approximate colored parent meshes; it does not select camera detail.
+provides colored parent meshes with unchanged block surfaces; it does not select camera detail.
+Only adjacent axis-aligned rectangles with identical RGBA merge. Vertices never move;
+faces touching a spatial tile boundary retain their original subdivision. Materials
+are welded by position and color, so different faces do not acquire interpolated
+colors. Nonrectangular model faces remain intact. Geometry error is zero; distant
+texture averaging still loses texture detail. Tests compare oriented unit-face coverage
+and neighboring seams across six hierarchy levels. This follows
+[greedy voxel meshing](https://0fps.net/2012/06/30/meshing-in-a-minecraft-game/).
+The [blocky LOD analysis](https://0fps.net/2018/03/03/a-level-of-detail-method-for-blocky-voxels/)
+explains quantized geometry and seams; this implementation does not use POP geomorphing.
+The historical overview extra remains installable without a native simplifier.
 `atlas.merge_mesh_atlases` combines prepared textured meshes through the existing
 atlas packer, remapping UV coordinates without changing their sampled pixels.
 Snapshot persistence, memory selection and worker scheduling belong to the editor.
@@ -38,9 +48,11 @@ float32/int32 buffers before any GUI/backend call. It contains no Qt/VTK depende
 Cutout parent surfaces stay opaque; true blend retains averaged alpha.
 
 Transparent full-cube neighbor culling groups states by block identity instead of
-palette index. A shared leaf plane is retained once, rather than removed from both
-sides or emitted twice; this preserves canopy density without coplanar overlap.
-Differences in `distance`, `persistent` or species do not duplicate it. Glass/ice states and
+palette index. Leaves retain both oppositely wound internal faces, including their own UV orientation.
+Opaque and cutout packets enable backface culling; only the front-facing side of
+a coincident pair is drawn. Grass, dripstone and sculk vein use this same rule,
+while BLEND remains double-sided. This preserves canopy density without drawing
+coincident front and back faces together. Glass/ice states and
 fluid levels likewise share the appropriate group; distinct materials retain their
 boundary. Model-backed and fallback geometry use the same neighbor rule.
 The water neighbor mask includes seagrass, both tall-seagrass halves, kelp and

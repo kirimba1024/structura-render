@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "structura-render"
-version = "0.8.2"
+version = "0.8.3"
 description = "Minecraft PNG/SVG rendering and 3D export (USD/USDZ, glTF, OBJ, STL, VOX)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-overview = ["meshoptimizer==0.2.30a0"]
+overview = []
 hero = ["pyvista>=0.46,<0.47"]
 usdz = ["usd-core>=26,<27"]
 gltf = ["trimesh>=4.5,<5", "networkx>=3.2,<4"]

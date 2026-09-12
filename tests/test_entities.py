@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -131,6 +132,18 @@ def test_bundled_model_catalog_covers_every_declared_layer():
         entity_models.model_layer(kind, {}) in catalog
         for kind in entities.VANILLA_MOB_TYPES_26_2
     )
+
+
+def test_bat_uses_legacy_client_texture_with_the_baked_model(tmp_path):
+    path = tmp_path / 'textures/entity/bat.png'
+    path.parent.mkdir(parents=True)
+    Image.new('RGBA', (32, 32), (85, 60, 40, 255)).save(path)
+    with AssetContext(tmp_path).activate():
+        parts = entities.HANDLERS['bat']({})
+        assert len(parts) > 12
+        assert all(part['texture'] == 'entity/bat' and 'quad_uvs' in part for part in parts)
+        points = np.asarray([point for part in parts for quad in part['quads'] for point in quad])
+        assert np.all(np.ptp(points, axis=0) > .1)
 
 
 def test_baked_model_quads_keep_per_face_uv_and_giant_scale(tmp_path, monkeypatch):

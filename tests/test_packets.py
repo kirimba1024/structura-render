@@ -31,6 +31,6 @@ def test_material_split_retains_uvs_and_shares_texture_identity():
                         np.ones((4, 4, 4), dtype=np.uint8))
     packets = list(textured_packets(mesh))
     assert [p.mode for p in packets] == ['OPAQUE', 'MASK', 'BLEND']
-    assert [p.cull for p in packets] == [True, False, False]
+    assert [p.cull for p in packets] == [True, True, False]
     assert all(p.image is mesh.image and p.texture_key == packets[0].texture_key for p in packets)
     assert np.array_equal(np.concatenate([p.uv[p.indices] for p in packets]), mesh.uv[mesh.quads])

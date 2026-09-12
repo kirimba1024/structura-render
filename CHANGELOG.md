@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.3
+
+- Keep block overview geometry axis aligned with coplanar rectangle merging;
+  preserve tile boundaries and remove the native QEM dependency.
+- Cull back faces of cutout packets to prevent coincident vegetation and
+  surface models from fighting in the depth buffer.
+- Preserve both correctly oriented leaf interior faces and resolve the legacy
+  bat texture path used by Minecraft 1.21.1.
+- Order overview triangles spatially before packet splitting to reduce
+  duplicated vertices without changing surfaces or colours.
+
 ## 0.8.2
 
 - Require core 0.6.2 and publish the geometry APIs used by Structura Edit 0.1.0a2.

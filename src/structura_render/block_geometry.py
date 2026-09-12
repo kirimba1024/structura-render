@@ -355,24 +355,18 @@ def _emit_torch(name, props, own, face_ids, buffer):
 
 def surface_neighbors(state, index, names, occluder, own):
     name = names[index]
-    if shape_is_occluder(name):
+    if shape_is_occluder(name) or name.endswith("_leaves"):
         return occluder
-    if name.endswith("_leaves"):
-        indices = [other for other, value in names.items() if value.endswith("_leaves")]
-    elif is_full_cube_shape(name):
+    if is_full_cube_shape(name):
         indices = [other for other, value in names.items() if value == name]
     else:
         indices = [index]
     return occluder | (own if len(indices) == 1 else np.isin(state, indices))
 
 
-LEAF_INTERIOR_FACES = frozenset(("up", "east", "south"))
-
-
-def _emit_cube(own, face_ids, occluder, buffer, *, leaf_occluder=None):
+def _emit_cube(own, face_ids, occluder, buffer):
     for direction in CUBE_FACES:
-        neighbors = leaf_occluder if leaf_occluder is not None and direction in LEAF_INTERIOR_FACES else occluder
-        mask = exposed_mask(own, neighbors, direction)
+        mask = exposed_mask(own, occluder, direction)
         pos = np.argwhere(mask).astype(np.float32)
         key = face_texture_key(direction, face_ids)
         rect = buffer.rects[face_ids.get(key, face_ids.get("all"))]
@@ -395,5 +389,4 @@ def emit_fallback_blocks(resolved, state, names, properties, masks, buffer):
         elif name in TORCH_STANDING or name in TORCH_WALL:
             _emit_torch(name, props, own, face_ids, buffer)
         else:
-            _emit_cube(own, face_ids, surface_neighbors(state, index, names, masks.occluder, own), buffer,
-                       leaf_occluder=masks.occluder if name.endswith("_leaves") else None)
+            _emit_cube(own, face_ids, surface_neighbors(state, index, names, masks.occluder, own), buffer)

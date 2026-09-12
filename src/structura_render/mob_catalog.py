@@ -160,7 +160,7 @@ def _mob_specs():
         "tadpole": "entity/tadpole/tadpole", "tropical_fish": "entity/fish/tropical_a",
         "zombie_nautilus": "entity/nautilus/zombie_nautilus",
     })
-    add("bat", {"bat": "entity/bat/bat"})
+    add("bat", {"bat": ("entity/bat/bat", "entity/bat")})
     add("bee", {"bee": "entity/bee/bee"})
     add("blaze", {"blaze": "entity/blaze/blaze", "breeze": "entity/breeze/breeze"})
     add("camel", {

@@ -1,3 +1,4 @@
+from dataclasses import replace
 import hashlib
 import math
 
@@ -5,6 +6,7 @@ import numpy as np
 from PIL import Image
 
 from .geometry import DEFAULT_MAX_ATLAS_SIZE, TexturedMesh
+from .packets import PACKET_BYTES, PACKET_VERTICES
 
 
 class Atlas:
@@ -173,6 +175,61 @@ def merge_mesh_atlases(meshes, max_size=DEFAULT_MAX_ATLAS_SIZE):
             group.append(mesh)
             area += size
     return result + finish(group)
+
+
+def compact_packet_atlas(packets, max_size=DEFAULT_MAX_ATLAS_SIZE):
+    atlas = Atlas(max_size)
+    pieces, mappings = {}, []
+    try:
+        for packet in packets:
+            if packet.image is None:
+                mappings.append(None)
+                continue
+            if not len(packet.indices) or packet.uv is None or not np.all((packet.uv >= 0) & (packet.uv <= 1)):
+                return None
+            height, width = packet.image.shape[:2]
+            bounds, faces = np.unique(uv_pixel_bounds(packet.image, packet.uv[packet.indices]), axis=0, return_inverse=True)
+            bounds[:, :2] = np.maximum(bounds[:, :2] - 1, 0)
+            bounds[:, 2:] = np.minimum(bounds[:, 2:] + 1, (width, height))
+            slots = []
+            for x0, y0, x1, y1 in bounds:
+                key = (id(packet.image), x0, y0, x1, y1)
+                if key not in pieces:
+                    pieces[key] = atlas.add(Image.fromarray(packet.image[y0:y1, x0:x1]))
+                slots.append(pieces[key])
+            mappings.append((bounds, faces, slots))
+        image, rects = atlas.build()
+    except ValueError:
+        return None
+    digest = hashlib.sha256(repr(image.shape).encode())
+    digest.update(memoryview(image))
+    identity = digest.digest()
+    result = []
+    for packet, mapping in zip(packets, mappings):
+        if mapping is None:
+            result.append(packet)
+            continue
+        bounds, faces, slots = mapping
+        used, inverse = np.unique(packet.indices * len(bounds) + faces[:, None], return_inverse=True)
+        if len(used) > PACKET_VERTICES:
+            return None
+        vertices, rectangles = np.divmod(used, len(bounds))
+        boxes = bounds[rectangles]
+        target = np.asarray(rects)[np.asarray(slots)[rectangles]]
+        height, width = packet.image.shape[:2]
+        pixels = packet.uv[vertices] * (width, -height) + (0, height)
+        uv = (pixels - boxes[:, :2]) / (boxes[:, 2:] - boxes[:, :2])
+        uv[:, 1] = 1 - uv[:, 1]
+        uv = uv * (target[:, (1, 3)] - target[:, (0, 2)]) + target[:, (0, 2)]
+        result.append(replace(packet, points=packet.points[vertices], indices=inverse.reshape(packet.indices.shape).astype(np.int32),
+                              uv=uv.astype(np.float32), colors=packet.colors[vertices] if packet.colors is not None else None,
+                              shading=packet.shading[vertices] if packet.shading is not None else None, image=image, texture_key=identity))
+        if result[-1].nbytes > PACKET_BYTES:
+            return None
+    textures = {id(packet.image): packet.image.nbytes for packet in packets if packet.image is not None}
+    if image.nbytes + sum(packet.nbytes for packet in result) >= sum(textures.values()) + sum(packet.nbytes for packet in packets):
+        return None
+    return result
 
 
 def cropped_uv(rect, direction, lo, hi):

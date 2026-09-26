@@ -63,7 +63,9 @@ def face_layout(dtype, vertices):
         first[tangents[0]] = 1 if offsets[vertex, tangents[0]] > .5 else -1
         second[tangents[1]] = 1 if offsets[vertex, tangents[1]] > .5 else -1
         neighbors[vertex] = first, second, first + second
-    return shade, np.rint(normal).astype(np.int32), neighbors
+    front = np.zeros(3, np.int32)
+    front[axis] = int(round(float(offsets[0, axis]))) - (normal[axis] < 0)
+    return shade, front, neighbors
 
 
 def face_shading(positions, offsets, occluder=None):

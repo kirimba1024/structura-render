@@ -54,6 +54,13 @@ copying. Compatibility includes texture identity, alpha, culling and vertex chan
 UVs and source images are unchanged. `merge_lod_packets` remains an alias.
 `atlas.merge_mesh_atlases` combines prepared textured meshes through the existing
 atlas packer, remapping UV coordinates without changing their sampled pixels.
+`atlas.compact_packet_atlas` repacks only UV regions used by prepared polygons,
+including a one-texel border for edge sampling. Atlas deduplicates identical crops.
+A vertex shared by different crops is split by its (vertex, crop) pair; winding,
+vertex attributes and material modes stay attached to the original polygons.
+It returns one packet per input, or None when compaction would exceed atlas/packet
+limits, repeat UVs outside the image, or fail to reduce total payload. Callers keep
+the existing whole-image path in that case. This work belongs to offline preparation.
 Snapshot persistence, memory selection and worker scheduling belong to the editor.
 `packets` separates materials and compacts/splits immutable geometry into bounded
 float32/int32 buffers before any GUI/backend call. It contains no Qt/VTK dependency.

@@ -67,3 +67,13 @@ def test_shared_cube_vertices_keep_uniform_face_shading_and_source_colors():
     assert set(values.ravel()) == {166, 209, 230, 255}
     assert np.all(shaded.colors == (120, 150, 180, 200))
     assert original.shading is None and len(original.points) == 8
+
+
+def test_inward_boundary_face_samples_the_layer_it_faces():
+    occluder = np.zeros((3, 3, 3), bool)
+    occluder[0, 1, 1] = True
+    offsets = np.asarray([[0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]], np.float32)
+    values = face_shading(np.asarray([[1, 1, 1]]), offsets, occluder)[:, 0]
+    assert list(values) == [217, 255, 255, 217]
+    outward = face_shading(np.asarray([[1, 1, 1]]), CUBE_CORNERS[CUBE_FACES['down']], occluder)[:, 0]
+    assert (outward == 255).all()

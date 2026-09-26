@@ -1,4 +1,5 @@
 from dataclasses import dataclass, replace
+from functools import lru_cache
 
 import numpy as np
 
@@ -42,28 +43,40 @@ def flat_packet_shading(packet):
                    colors=packet.colors[used] if packet.colors is not None else None, shading=shading)
 
 
-def face_shading(positions, offsets, occluder=None):
+@lru_cache(maxsize=4096)
+def face_layout(dtype, vertices):
+    offsets = np.frombuffer(vertices, dtype).reshape(-1, 3)
     normal = np.cross(offsets[1] - offsets[0], offsets[2] - offsets[0])
     length = np.linalg.norm(normal)
     normal = normal / length if length else np.zeros(3)
     directional = directional_brightness(normal)
-    result = np.full((len(positions), 4, 2), 255, np.uint8)
-    result[:, :, 1] = round((directional if length else 1) * 255)
+    shade = round((directional if length else 1) * 255)
     aligned = np.count_nonzero(np.abs(normal) > .001) == 1
     boundary = np.all(np.isclose(offsets, 0) | np.isclose(offsets, 1))
-    if occluder is not None and aligned and boundary:
-        axis = int(np.argmax(np.abs(normal)))
-        tangents = [i for i in range(3) if i != axis]
-        base = positions.astype(np.int32) + np.rint(normal).astype(np.int32)
-        for vertex in range(4):
-            first, second = np.zeros(3, np.int32), np.zeros(3, np.int32)
-            first[tangents[0]] = 1 if offsets[vertex, tangents[0]] > .5 else -1
-            second[tangents[1]] = 1 if offsets[vertex, tangents[1]] > .5 else -1
-            a = sample_grid(occluder, base + first, False)
-            b = sample_grid(occluder, base + second, False)
-            corner = sample_grid(occluder, base + first + second, False)
-            level = np.where(a & b, 0, 3 - a.astype(np.int8) - b - corner)
-            result[:, vertex, 0] = np.rint(255 * (.55 + .15 * level)).astype(np.uint8)
+    if not (aligned and boundary):
+        return shade, None, None
+    axis = int(np.argmax(np.abs(normal)))
+    tangents = [i for i in range(3) if i != axis]
+    neighbors = np.zeros((4, 3, 3), np.int32)
+    for vertex in range(4):
+        first, second = np.zeros(3, np.int32), np.zeros(3, np.int32)
+        first[tangents[0]] = 1 if offsets[vertex, tangents[0]] > .5 else -1
+        second[tangents[1]] = 1 if offsets[vertex, tangents[1]] > .5 else -1
+        neighbors[vertex] = first, second, first + second
+    return shade, np.rint(normal).astype(np.int32), neighbors
+
+
+def face_shading(positions, offsets, occluder=None):
+    offsets = np.asarray(offsets)
+    shade, step, neighbors = face_layout(offsets.dtype.str, offsets.tobytes())
+    result = np.full((len(positions), 4, 2), 255, np.uint8)
+    result[:, :, 1] = shade
+    if occluder is not None and neighbors is not None:
+        base = positions.astype(np.int32) + step
+        samples = sample_grid(occluder, base[:, None, None, :] + neighbors[None], False)
+        a, b, corner = samples[..., 0], samples[..., 1], samples[..., 2]
+        level = np.where(a & b, 0, 3 - a.astype(np.int8) - b - corner)
+        result[:, :, 0] = np.rint(255 * (.55 + .15 * level)).astype(np.uint8)
     return result.reshape(-1, 2)
 
 

@@ -118,6 +118,27 @@ def exposed_positions(positions, direction, *occluders):
     return positions[~hidden]
 
 
+def state_cells(state):
+    occupied = np.flatnonzero(state >= 0)
+    values = state.ravel()[occupied]
+    keys = values.astype(np.int16) if values.size and values.max() < 2**15 else values
+    order = np.argsort(keys, kind="stable")
+    return occupied[order], values[order]
+
+
+def exposed_cells(flat, cells, direction, occluder, state, hiding):
+    axis, step = next((axis, step) for axis, step in enumerate(FACE_STEP[direction]) if step)
+    coordinate = cells[:, axis] + step
+    inside = (coordinate >= 0) & (coordinate < state.shape[axis])
+    neighbors = flat[inside] + step * int(np.prod(state.shape[axis + 1:]))
+    hidden = occluder.ravel()[neighbors]
+    if hiding:
+        hidden |= np.isin(state.ravel()[neighbors], hiding)
+    visible = np.ones(len(cells), dtype=bool)
+    visible[inside] = ~hidden
+    return cells[visible]
+
+
 def connects_mask(own_mask, connectable, direction):
     return own_mask & shift_toward(connectable, direction)
 

@@ -140,3 +140,23 @@ def test_transparent_neighbors_keep_opposing_leaf_faces_and_cull_glass(tmp_path,
         faces = quads[internal]
         normals = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
         np.testing.assert_array_equal(normals[0], -normals[1])
+
+
+def test_sparse_face_culling_matches_dense_neighbor_masks():
+    from structura_render.block_geometry import culling_states, surface_neighbors
+    from structura_render.geometry import FACE_STEP, exposed_cells, exposed_mask, state_cells
+
+    names = {0: "minecraft:stone", 1: "minecraft:glass", 2: "minecraft:glass", 3: "minecraft:oak_leaves",
+             4: "minecraft:oak_stairs", 5: "minecraft:water"}
+    state = np.random.default_rng(20260926).integers(-1, len(names), size=(9, 7, 8)).astype(np.int32)
+    occluder = state == 0
+    flat, values = state_cells(state)
+    for index in names:
+        start, stop = np.searchsorted(values, (index, index + 1))
+        cells = np.column_stack(np.unravel_index(flat[start:stop], state.shape))
+        own = state == index
+        neighbors = surface_neighbors(state, index, names, occluder, own)
+        assert np.array_equal(cells, np.argwhere(own))
+        for direction in FACE_STEP:
+            sparse = exposed_cells(flat[start:stop], cells, direction, occluder, state, culling_states(index, names))
+            assert np.array_equal(sparse, np.argwhere(exposed_mask(own, neighbors, direction)))

@@ -69,6 +69,7 @@ from .geometry import (
     box_corners as box_corners,
     connects_mask as connects_mask,
     double_sided_triangles as double_sided_triangles,
+    exposed_cells,
     exposed_mask as exposed_mask,
     exposed_positions,
     mask_surface as mask_surface,
@@ -76,6 +77,7 @@ from .geometry import (
     quads_from_positions as quads_from_positions,
     rotate_y as rotate_y,
     shift_toward as shift_toward,
+    state_cells,
     triangulate_quads as triangulate_quads,
     vtk_quads as vtk_quads,
 )
@@ -135,18 +137,23 @@ class QuadBuffer:
 
 
 def _emit_models(blocks, state, names, occluder, buffer):
-    from .block_geometry import surface_neighbors
+    from .block_geometry import culling_states
 
+    flat, values = state_cells(state)
     for index, faces in blocks.items():
-        own = state == index
-        if not own.any():
+        start, stop = np.searchsorted(values, (index, index + 1))
+        if start == stop:
             continue
-        neighbors = surface_neighbors(state, index, names, occluder, own)
+        cells = np.column_stack(np.unravel_index(flat[start:stop], state.shape))
+        hiding = culling_states(index, names)
+        exposed = {None: cells.astype(np.float32)}
         for face in faces:
-            mask = exposed_mask(own, neighbors, face.cullface) if face.cullface else own
-            pos = np.argwhere(mask).astype(np.float32)
+            direction = face.cullface or None
+            if direction not in exposed:
+                visible = exposed_cells(flat[start:stop], cells, direction, occluder, state, hiding)
+                exposed[direction] = visible.astype(np.float32)
             uv = map_uv(buffer.rects[face.rect_index], face.uv)
-            buffer.append(pos, face.vertices, uv)
+            buffer.append(exposed[direction], face.vertices, uv)
 
 
 def _emit_specials(models, index_names, masks, buffer):

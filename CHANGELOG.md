@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Cull model faces from the occupied cells of each block state instead of scanning the
+  whole volume per state and face; textured geometry is byte-identical and about 4x faster.
+- Compute face normals, face shading and AO neighbor offsets once per face shape and
+  sample AO occupancy in one vectorized pass.
+
 ## 0.8.7
 
 - Keep local corner AO and fixed face shading separate from source colors, alpha and textures.

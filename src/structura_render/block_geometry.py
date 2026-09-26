@@ -353,15 +353,20 @@ def _emit_torch(name, props, own, face_ids, buffer):
         buffer.append(positions, plane_z[CUBE_FACES[direction]], uv)
 
 
-def surface_neighbors(state, index, names, occluder, own):
+def culling_states(index, names):
     name = names[index]
     if shape_is_occluder(name) or name.endswith("_leaves"):
-        return occluder
+        return ()
     if is_full_cube_shape(name):
-        indices = [other for other, value in names.items() if value == name]
-    else:
-        indices = [index]
-    return occluder | (own if len(indices) == 1 else np.isin(state, indices))
+        return tuple(other for other, value in names.items() if value == name)
+    return (index,)
+
+
+def surface_neighbors(state, index, names, occluder, own):
+    hiding = culling_states(index, names)
+    if not hiding:
+        return occluder
+    return occluder | (own if hiding == (index,) else np.isin(state, hiding))
 
 
 def _emit_cube(own, face_ids, occluder, buffer):

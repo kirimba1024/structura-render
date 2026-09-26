@@ -84,10 +84,11 @@ from .mesh_models import (
     prepare_models,
     resolve_special_parts as resolve_special_parts,
 )
+from .shading import face_shading
 
 
 class QuadBuffer:
-    def __init__(self, atlas_image, rects, emit_bounds=None, emit_mask=None):
+    def __init__(self, atlas_image, rects, emit_bounds=None, emit_mask=None, occluder=None):
         self.atlas_image = atlas_image
         self.rects = rects
         self.points_all = []
@@ -98,6 +99,8 @@ class QuadBuffer:
         self.vertex_count = 0
         self.emit_bounds = emit_bounds
         self.emit_mask = emit_mask
+        self.occluder = occluder
+        self.shading_all = []
 
     def append(self, positions, offsets, uv):
         if self.emit_bounds is not None:
@@ -113,6 +116,7 @@ class QuadBuffer:
         self.points_all.append(points)
         self.faces_all.append(faces)
         self.uv_all.append(np.tile(uv, (len(positions), 1)))
+        self.shading_all.append(face_shading(positions, offsets, self.occluder))
         bounds = uv_pixel_bounds(self.atlas_image, uv)
         if bounds not in self.mode_cache:
             x0, y0, x1, y1 = bounds
@@ -126,7 +130,7 @@ class QuadBuffer:
             raise RuntimeError("textured geometry was built without an atlas")
         return [TexturedMesh(
             np.vstack(self.points_all), np.vstack(self.faces_all),
-            np.vstack(self.uv_all), np.concatenate(self.material_modes), self.atlas_image,
+            np.vstack(self.uv_all), np.concatenate(self.material_modes), self.atlas_image, np.vstack(self.shading_all),
         )]
 
 
@@ -212,7 +216,7 @@ def _build_textured_geometry(src, solid, state, index_names, index_props, bank, 
     models = prepare_models(src, state, index_names, index_props, bank, atlas)
     masks = block_masks(state, index_names, index_props)
     image, rects = atlas.build(max_size=max_atlas_size) if atlas.images else (None, [])
-    buffer = QuadBuffer(image, rects, emit_bounds, emit_mask)
+    buffer = QuadBuffer(image, rects, emit_bounds, emit_mask, masks.occluder)
     _emit_models(models.blocks, state, index_names, masks.occluder, buffer)
     _emit_specials(models, index_names, masks, buffer)
     emit_fallback_blocks(models.fallback, state, index_names, index_props, masks, buffer)

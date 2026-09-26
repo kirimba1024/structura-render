@@ -99,9 +99,10 @@ def face_uv(uv, direction):
 def uv_pixel_bounds(image, uv):
     height, width = image.shape[:2]
     pixels = np.asarray(uv) * (width, -height) + (0, height)
-    lo = np.clip(np.floor(pixels.min(axis=0) + 1e-4).astype(int), 0, (width - 1, height - 1))
-    hi = np.clip(np.ceil(pixels.max(axis=0) - 1e-4).astype(int), lo + 1, (width, height))
-    return int(lo[0]), int(lo[1]), int(hi[0]), int(hi[1])
+    lo = np.clip(np.floor(pixels.min(axis=-2) + 1e-4).astype(int), 0, (width - 1, height - 1))
+    hi = np.clip(np.ceil(pixels.max(axis=-2) - 1e-4).astype(int), lo + 1, (width, height))
+    bounds = np.concatenate((lo, hi), axis=-1)
+    return tuple(map(int, bounds)) if bounds.ndim == 1 else bounds
 
 
 def uv_points_for_rect(rect, points):
@@ -157,7 +158,8 @@ def merge_mesh_atlases(meshes, max_size=DEFAULT_MAX_ATLAS_SIZE):
             uv.append(map_uv(rects[slot], mesh.uv))
             modes.append(mesh.alpha_modes)
             count += len(mesh.points)
-        return [TexturedMesh(np.concatenate(points), np.concatenate(quads), np.concatenate(uv), np.concatenate(modes), image)]
+        return [TexturedMesh(np.concatenate(points), np.concatenate(quads), np.concatenate(uv), np.concatenate(modes), image,
+                             np.concatenate([mesh.shading for mesh in parts]) if all(mesh.shading is not None for mesh in parts) else None)]
 
     for mesh in meshes:
         height, width = mesh.image.shape[:2]

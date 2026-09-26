@@ -7,6 +7,9 @@ from .atlas import uv_pixel_bounds
 from .color_space import linear_to_srgb, srgb_to_linear
 
 
+COLOR_BATCH_QUADS = 16_384
+
+
 @dataclass
 class LodMesh:
     points: np.ndarray
@@ -34,15 +37,15 @@ def colored_geometry(meshes, flat):
     parts = []
     for mesh in meshes:
         colors = np.zeros((len(mesh.points), 4), np.uint8)
-        cache = {}
-        for quad, mode in zip(mesh.quads, mesh.alpha_modes):
-            bounds = uv_pixel_bounds(mesh.image, mesh.uv[quad])
-            if bounds not in cache:
-                x0, y0, x1, y1 = bounds
-                cache[bounds] = average_rgba(mesh.image[y0:y1, x0:x1])
-            colors[quad] = cache[bounds]
-            if ALPHA_MODES[mode] != 'BLEND':
-                colors[quad, 3] = 255
+        for start in range(0, len(mesh.quads), COLOR_BATCH_QUADS):
+            quads = mesh.quads[start:start + COLOR_BATCH_QUADS]
+            bounds, indices = np.unique(uv_pixel_bounds(mesh.image, mesh.uv[quads]), axis=0, return_inverse=True)
+            palette = np.asarray([average_rgba(mesh.image[y0:y1, x0:x1]) for x0, y0, x1, y1 in bounds])
+            shades = palette[indices.reshape(-1)]
+            modes = mesh.alpha_modes[start:start + len(quads)]
+            shades[np.asarray(ALPHA_MODES)[modes] != 'BLEND', 3] = 255
+            used, reverse = np.unique(quads.ravel()[::-1], return_index=True)
+            colors[used] = shades[(quads.size - 1 - reverse) // 4]
         parts.append(LodMesh(mesh.points, triangulate_quads(mesh.quads), colors))
     for points, faces, color in flat:
         quads = np.asarray(faces).reshape(-1, 5)[:, 1:]

@@ -19,6 +19,35 @@ def test_far_colors_preserve_linear_brightness_and_cutout_density():
     assert (colored_geometry([mesh], []).colors[:, 3] == 128).all()
 
 
+@pytest.mark.parametrize('count', [0, 73, 16387])
+def test_batched_far_colors_match_scalar_reference_with_shared_vertices(count):
+    from structura_render.atlas import uv_pixel_bounds
+    from structura_render.geometry import ALPHA_MODES
+
+    rng = np.random.default_rng(719)
+    points = rng.random((19, 3)).astype(np.float32)
+    uv = rng.uniform(-.1, 1.1, (19, 2)).astype(np.float32)
+    uv[0] = (0, 0)
+    uv[1] = (1, 1)
+    quads = rng.integers(0, 17, (count, 4), dtype=np.uint32)
+    modes = rng.integers(0, len(ALPHA_MODES), count, dtype=np.uint8)
+    image = rng.integers(0, 256, (11, 8, 4), dtype=np.uint8)
+    expected = np.zeros((len(points), 4), np.uint8)
+    for quad, mode in zip(quads, modes):
+        x0, y0, x1, y1 = uv_pixel_bounds(image, uv[quad])
+        expected[quad] = average_rgba(image[y0:y1, x0:x1])
+        if ALPHA_MODES[mode] != 'BLEND':
+            expected[quad, 3] = 255
+    result = colored_geometry([TexturedMesh(points, quads, uv, modes, image)], [])
+    if count:
+        np.testing.assert_array_equal(result.colors, expected)
+        np.testing.assert_array_equal(result.points, points)
+        np.testing.assert_array_equal(result.triangles, triangulate_quads(quads))
+    else:
+        assert result.points.shape == result.triangles.shape == (0, 3)
+        assert result.colors.shape == (0, 4)
+
+
 def test_simplification_preserves_all_spatial_boundary_vertices():
     mask = np.zeros((16, 16, 16), bool)
     mask[:, :8, :] = True

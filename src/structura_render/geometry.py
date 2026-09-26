@@ -17,6 +17,7 @@ class TexturedMesh:
     uv: np.ndarray
     alpha_modes: np.ndarray
     image: np.ndarray
+    shading: object = None
 
     def to_pyvista(self):
         import pyvista as pv

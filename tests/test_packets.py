@@ -84,3 +84,52 @@ def test_lod_keeps_faces_that_cannot_safely_become_rectangles(kind):
 
 def test_empty_lod_has_no_packets():
     assert list(lod_packets(empty_lod())) == []
+
+
+def test_prepared_lod_join_preserves_attributes_and_respects_both_packet_limits(monkeypatch):
+    from structura_render import packets as module
+
+    monkeypatch.setattr(module, 'PACKET_BYTES', 512)
+    monkeypatch.setattr(module, 'PACKET_VERTICES', 20)
+    inputs = []
+    for width, mode in ((3, 'OPAQUE'), (4, 'BLEND'), (4, 'OPAQUE')):
+        points = np.arange(width * 48, dtype=np.float32).reshape(-1, 3)
+        colors = (points[:, [0, 1, 2, 0]] % 256).astype(np.uint8)
+        inputs.extend(polygon_packets(points, np.arange(len(points)).reshape(-1, width), mode,
+                                      colors=colors, cull=mode == 'OPAQUE', max_vertices=width))
+    before = [(p.points.copy(), p.indices.copy(), p.colors.copy()) for p in inputs]
+    result = list(module.merge_packets(inputs))
+    assert len(result) < len(inputs)
+    for width, mode in ((3, 'OPAQUE'), (4, 'BLEND'), (4, 'OPAQUE')):
+        old = [p for p in inputs if p.mode == mode and p.indices.shape[1] == width]
+        new = [p for p in result if p.mode == mode and p.indices.shape[1] == width]
+        for name in ('points', 'colors'):
+            np.testing.assert_array_equal(np.concatenate([getattr(p, name)[p.indices] for p in old]),
+                                          np.concatenate([getattr(p, name)[p.indices] for p in new]))
+    for packet in result:
+        assert packet.nbytes <= 512 and len(packet.points) <= 20
+        assert packet.cull == (packet.mode == 'OPAQUE')
+    for packet, arrays in zip(inputs, before):
+        for name, array in zip(('points', 'indices', 'colors'), arrays):
+            np.testing.assert_array_equal(getattr(packet, name), array)
+    assert list(module.merge_packets([inputs[0]]))[0] is inputs[0]
+
+
+def test_joined_textured_packets_preserve_uv_alpha_material_and_source_buffers():
+    from structura_render.packets import RenderPacket, merge_packets
+
+    image = np.arange(64, dtype=np.uint8).reshape(4, 4, 4)
+    points = np.array(((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)), np.float32)
+    indices = np.array(((0, 1, 2, 3),), np.int32)
+    uv = points[:, :2].copy()
+    packets = [RenderPacket(points + offset, indices.copy(), mode, uv=uv.copy(), image=image,
+                            texture_key=key, cull=mode != 'BLEND')
+               for offset, mode, key in ((0, 'MASK', 'a'), (2, 'MASK', 'a'), (4, 'BLEND', 'a'), (6, 'MASK', 'b'))]
+    joined = list(merge_packets(packets))
+    assert len(joined) == 3
+    assert joined[0].mode == 'MASK' and joined[0].cull
+    assert joined[0].image is image and joined[0].texture_key == 'a'
+    assert np.array_equal(joined[0].points[joined[0].indices], np.concatenate([p.points[p.indices] for p in packets[:2]]))
+    assert np.array_equal(joined[0].uv[joined[0].indices], np.concatenate([p.uv[p.indices] for p in packets[:2]]))
+    assert joined[1] is packets[2] and joined[2] is packets[3]
+    assert all(np.array_equal(p.indices, indices) and np.array_equal(p.uv, uv) for p in packets)

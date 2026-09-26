@@ -29,20 +29,29 @@ emits ordinary model faces, special block faces, fallback shapes and entities.
 
 The overview uses the same exact model mesher for 16³ leaves. `lod_geometry`
 provides colored parent meshes with unchanged block surfaces; it does not select camera detail.
-Only adjacent axis-aligned rectangles with identical RGBA merge. Vertices never move;
-faces touching a spatial tile boundary retain their original subdivision. Materials
-are welded by position and color, so different faces do not acquire interpolated
-colors. Nonrectangular model faces remain intact. Geometry error is zero; distant
-texture averaging still loses texture detail. Tests compare oriented unit-face coverage
-and neighboring seams across six hierarchy levels. This follows
-[greedy voxel meshing](https://0fps.net/2012/06/30/meshing-in-a-minecraft-game/).
-The [blocky LOD analysis](https://0fps.net/2018/03/03/a-level-of-detail-method-for-blocky-voxels/)
-explains quantized geometry and seams; this implementation does not use POP geomorphing.
-The historical overview extra remains installable without a native simplifier.
+UV bounds and color assignment run in batches of at most 16,384 quads, with one
+linear-color average per distinct texture rectangle in the batch. Shared vertices
+keep the last face's color and alpha mode, matching scalar traversal. The same
+`atlas.uv_pixel_bounds` calculation supports one face or a batch; float rounding,
+texture clamping, cutout opacity and blended alpha retain their existing rules.
+`simplify_lod` merges only compatible axis-aligned rectangles and retains exact
+surfaces. The editor uses it for levels 1–2. `voxel_lod` is the single far builder:
+fixed 32³ summaries combine occupied counts, linear RGB/alpha sums and known-cell
+counts. Opaque and blended samples are separate; opaque wins a mixed coarse cell.
+Any occupancy survives reduction, preserving thin features but potentially closing
+small distant gaps. Parent reduction sums summaries instead of averaging rounded colors.
+Generated faces and vertices remain on an axis-aligned cube grid at every level.
+Tile boundaries are capped; mixed-level silhouettes still require visual acceptance.
+There is no meshoptimizer dependency. Snapshot persistence, source reads, versioning
+and camera quality selection belong to the editor. Near models retain their exact shape.
 `packets.lod_packets` preserves uniform axis-aligned rectangles as quads, orders
 polygons spatially and splits OPAQUE/BLEND before bounded packet generation.
 Unpaired, degenerate, nonrectangular or gradient-coloured triangles retain their
 original triangulation. The shared rectangle recognizer also serves LOD merging.
+`merge_packets` joins compatible prepared textured or colored parts within both
+packet limits by offsetting existing indices; it passes lone packets through without
+copying. Compatibility includes texture identity, alpha, culling and vertex channels;
+UVs and source images are unchanged. `merge_lod_packets` remains an alias.
 `atlas.merge_mesh_atlases` combines prepared textured meshes through the existing
 atlas packer, remapping UV coordinates without changing their sampled pixels.
 Snapshot persistence, memory selection and worker scheduling belong to the editor.
@@ -155,3 +164,13 @@ module while continuing to exercise the existing public entry points.
 ## Вода в растениях и waterlogged-моделях
 
 `contains_water` определяет жидкость независимо от основной модели блока. SpecialModel хранит отдельную fluid-геометрию. Общие внутренние грани соседних жидкостей скрываются; внешние грани wet/waterlogged-клетки сохраняются даже у модели растения. Граница участка рендера использует halo соседей. Проверки сравнивают площадь, материалы и геометрию на всех шести внешних границах, а edit дополнительно проверяет стыки участков 16³/32³.
+
+## Local appearance data
+
+`shading.py` prepares two independent uint8 vertex channels: local corner AO and
+fixed face-direction brightness. It reads no saved Minecraft light and runs no
+propagation. Unit cube faces sample an adjacent occluder stencil; partial faces
+use neutral AO. The AO corner values choose the quad diagonal without changing
+UVs or winding. Packets keep appearance channels separate from albedo and alpha,
+so editor controls update vertex colors without rebuilding geometry or darkening
+LOD input colors repeatedly. VTK editor actors disable dynamic lighting.

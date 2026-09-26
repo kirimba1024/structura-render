@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.8.7
+
+- Keep local corner AO and fixed face shading separate from source colors, alpha and textures.
+- Choose quad diagonals from AO without changing UVs or winding; preserve shading in bounded packets.
+
+## 0.8.6
+
+- Join prepared textured and colored packets without rebuilding atlases or changing
+  UVs, alpha modes, material identities or source buffers.
+
+## 0.8.5
+
+- Join prepared colored packets within byte and vertex limits without repeating
+  face recognition or index compaction; keep lone packet buffers shared.
+- Replace the distant mesh simplifier with bounded cubic voxel summaries and
+  axis-aligned faces at every far level; remove the meshoptimizer dependency.
+- Preserve occupied thin features, known-air counts, linear colors and separate
+  opaque/blended samples through repeated reduction. Near models remain exact.
+
+## 0.8.4
+
+- Batch far-color UV bounds and averaging without changing texture colors,
+  alpha modes, face order or shared-vertex assignment.
+
+- Add a separate distant mesh simplifier with exact spatial collars, explicit
+  vertex locks, alpha separation and linear RGB attributes. The overview extra
+  pins meshoptimizer 0.2.30a0; exact near-level simplification is unchanged.
+
 ## 0.8.3
 
 - Keep block overview geometry axis aligned with coplanar rectangle merging;

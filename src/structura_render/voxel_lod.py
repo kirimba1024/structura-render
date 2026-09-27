@@ -25,15 +25,15 @@ def reduce_voxels(samples, factor=2):
 
 def block_voxels(blocks, palette, factor=4):
     colors = np.vstack((palette, np.zeros((1, 4), np.uint8)))
-    rgba = colors[blocks]
+    rgba = colors
     linear = srgb_to_linear(rgba[..., :3] / 255)
-    result = np.zeros((*blocks.shape, SAMPLE_CHANNELS), np.float32)
+    result = np.zeros((len(colors), SAMPLE_CHANNELS), np.float32)
     for channel, mask in ((0, rgba[..., 3] == 255), (5, (rgba[..., 3] > 0) & (rgba[..., 3] < 255))):
         result[..., channel] = mask
         result[..., channel + 1:channel + 4] = linear * mask[..., None]
         result[..., channel + 4] = rgba[..., 3] / 255 * mask
     result[..., 10] = 1
-    return reduce_voxels(result, factor)
+    return reduce_voxels(result[blocks], factor)
 
 
 def voxel_colors(samples):

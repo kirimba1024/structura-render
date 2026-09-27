@@ -37,7 +37,8 @@ texture clamping, cutout opacity and blended alpha retain their existing rules.
 `simplify_lod` merges only compatible axis-aligned rectangles and retains exact
 surfaces. The editor uses it for levels 1–2. `voxel_lod` is the single far builder:
 fixed 32³ summaries combine occupied counts, linear RGB/alpha sums and known-cell
-counts. Opaque and blended samples are separate; opaque wins a mixed coarse cell.
+counts. Linear colors and sample channels are computed per palette entry before
+indexing the voxel grid, avoiding per-block color conversion. Opaque and blended samples are separate; opaque wins a mixed coarse cell.
 Any occupancy survives reduction, preserving thin features but potentially closing
 small distant gaps. Parent reduction sums summaries instead of averaging rounded colors.
 Generated faces and vertices remain on an axis-aligned cube grid at every level.

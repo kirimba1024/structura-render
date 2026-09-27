@@ -37,12 +37,18 @@ texture clamping, cutout opacity and blended alpha retain their existing rules.
 `simplify_lod` merges only compatible axis-aligned rectangles and retains exact
 surfaces. The editor uses it for levels 1–2. `voxel_lod` is the single far builder:
 fixed 32³ summaries combine occupied counts, linear RGB/alpha sums and known-cell
-counts. Linear colors and sample channels are computed per palette entry before
+counts. Channels 11–12 retain global minimum/maximum blended Y extents; reduction
+uses min/max for them and sums the first eleven channels. Water therefore keeps its
+block boundary height when that height is not divisible by the coarse cell size.
+Linear colors and sample channels are computed per palette entry before
 indexing the voxel grid, avoiding per-block color conversion. Opaque and blended samples are separate; opaque wins a mixed coarse cell.
 Any occupancy survives reduction, preserving thin features but potentially closing
 small distant gaps. Parent reduction sums summaries instead of averaging rounded colors.
-Generated faces and vertices remain on an axis-aligned cube grid at every level.
-Tile boundaries are capped; mixed-level silhouettes still require visual acceptance.
+Opaque faces stay on the cube grid; blended Y extents stay at their recorded heights.
+All faces remain axis-aligned. Adjacent blended cells emit only exposed vertical strips.
+A conservative boundary cap for partially occupied opaque neighbors does not force
+a duplicate blended face against the same neighbor. Mixed-level silhouettes and
+fractional flowing-fluid heights still require separate acceptance.
 There is no meshoptimizer dependency. Snapshot persistence, source reads, versioning
 and camera quality selection belong to the editor. Near models retain their exact shape.
 `packets.lod_packets` preserves uniform axis-aligned rectangles as quads, orders

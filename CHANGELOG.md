@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve blended voxel height bounds through LOD reduction and emit only exposed strips
+  between adjacent fluids; keep conservative opaque caps separate from fluid occlusion.
+
 - Read every frame of animated block textures in their `.mcmeta` order and timing; fluid texture
   settings live in `entity_shapes.FLUID_TEXTURES`.
 - Count leaves in ambient occlusion like Minecraft without letting them hide neighbor faces.

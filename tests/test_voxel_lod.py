@@ -84,7 +84,7 @@ def test_reduction_is_additive_across_sections():
             for z in range(2):
                 source = tuple(slice(p * 16, (p + 1) * 16) for p in (x, y, z))
                 target = tuple(slice(p * 4, (p + 1) * 4) for p in (x, y, z))
-                assembled[target] = block_voxels(blocks[source], palette)
+                assembled[target] = block_voxels(blocks[source], palette, origin_y=y * 16)
     actual = reduce_voxels(assembled)
     np.testing.assert_array_equal(actual[..., [0, 5, 10]], expected[..., [0, 5, 10]])
     np.testing.assert_allclose(actual, expected, rtol=4e-6)
@@ -105,3 +105,30 @@ def test_emit_bounds_uses_halo_for_culling_without_emitting_neighbor_faces():
     assert len(mesh.triangles) == 2
     assert np.all(mesh.points[:, 0] == 2)
     assert np.all(mesh.points[:, 1:] >= 2) and np.all(mesh.points[:, 1:] <= 4)
+
+
+@pytest.mark.parametrize('surface', [1, 5, 7, 15, 23])
+@pytest.mark.parametrize('origin_y', [-64, 0, 80])
+def test_water_keeps_its_surface_and_bottom_through_all_reductions(surface, origin_y):
+    blocks = np.full((32, 32, 32), -1, np.int32)
+    blocks[:, :surface] = 0
+    samples = block_voxels(blocks, np.array([(40, 80, 160, 110)], np.uint8), factor=2, origin_y=origin_y)
+    for step in (2, 4, 8, 16, 32):
+        mesh = voxel_mesh(samples, step, origin_y=origin_y)
+        triangles = mesh.points[mesh.triangles]
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        np.testing.assert_array_equal(triangles[normals[:, 1] > 0, :, 1], surface)
+        np.testing.assert_array_equal(triangles[normals[:, 1] < 0, :, 1], 0)
+        assert np.isclose(np.linalg.norm(normals, axis=1).sum() / 2, 2 * 32**2 + 4 * 32 * surface)
+        samples = reduce_voxels(samples) if step < 32 else samples
+
+
+def test_blended_steps_emit_only_the_exposed_vertical_strip():
+    blocks = np.full((4, 4, 4), -1, np.int32)
+    blocks[:2, :3] = 0
+    blocks[2:, :2] = 0
+    samples = block_voxels(blocks, np.array([(40, 80, 160, 110)], np.uint8), factor=2)
+    mesh = voxel_mesh(samples, 2)
+    triangles = mesh.points[mesh.triangles]
+    side = triangles[np.all(triangles[..., 0] == 2, axis=1)]
+    assert len(side) and side[..., 1].min() == 2 and side[..., 1].max() == 3

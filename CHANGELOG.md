@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Draw map icons from the model at whole-texel scale with a thin silhouette outline; fish,
+  horses, parrots and camels use profiles, squids spread their tentacles.
+- Find mob skins under their pre-26 names, so 1.21 worlds no longer show structure-block
+  textures; skip icons whose legacy skin layout does not match the bundled model.
 - Cull model faces from the occupied cells of each block state instead of scanning the
   whole volume per state and face; textured geometry is byte-identical and about 4x faster.
 - Compute face normals, face shading and AO neighbor offsets once per face shape and

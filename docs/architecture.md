@@ -144,10 +144,11 @@ Invalid output extensions are rejected before reading the source.
 | `entity_shapes` | Factories for special blocks such as chests, beds, banners, pots and fluids. |
 | `entity_state` | Entity NBT values, orientation, age and placement coordinates. |
 | `mob_catalog` | Supported mob families, texture candidates and approximate rig specifications. |
-| `entity_mobs` | Skin selection and source-model/fallback construction for mobs. |
+| `entity_mobs` | Skin selection, including pre-26 texture names, and source-model/fallback construction for mobs. |
 | `entity_objects` | Paintings, item frames, equipment, vehicles and other non-mob objects. |
 | `entities` | Handler registry and dispatch of structure entity records. |
-| `entity_models` | Read and transform the bundled model-layer catalog. |
+| `entity_models` | Read and transform the bundled model-layer catalog; map legacy 64×32 skins onto its UVs. |
+| `entity_icons` | Map icons from the same models: head or per-kind view, whole texels and a silhouette outline. |
 
 Model primitives do not depend on a block or entity catalog. Add a mob's static
 specification to `mob_catalog`, its exceptional skin rules to `entity_mobs`, or

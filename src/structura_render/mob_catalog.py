@@ -228,7 +228,7 @@ def _mob_specs():
     add("shulker", {"shulker": "entity/shulker/shulker"})
     add("bird", {"strider": "entity/strider/strider"}, 1.15)
     add("frog", {"frog": ("entity/frog/frog_temperate", "entity/frog/temperate_frog")})
-    add("turtle", {"turtle": "entity/turtle/turtle"})
+    add("turtle", {"turtle": ("entity/turtle/turtle", "entity/turtle/big_sea_turtle")})
     add("wither", {"wither": "entity/wither/wither"}, 1.5)
     return specs
 

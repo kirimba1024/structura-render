@@ -55,6 +55,9 @@ REQUIRED_LAYERS = frozenset(ENTITY_LAYERS.values()) | OBJECT_LAYERS | frozenset(
     f"{ENTITY_LAYERS[kind]}_BABY" for kind in BABY_LAYERS
 ) | frozenset(VARIANT_LAYERS.values()) | frozenset({"COLD_COW_BABY", "WARM_COW_BABY"})
 
+HALF_HEIGHT_LEGACY_TEXTURES = frozenset({"cow", "mooshroom", "pig"})
+RESHAPED_LEGACY_TEXTURES = frozenset({"magma_cube", "rabbit"})
+
 CATALOG_PATH = Path(__file__).with_name("data") / "entity_models_26_2.json"
 
 
@@ -137,6 +140,15 @@ def _texture_image(texture):
         return None
 
 
+def uv_size(kind, image):
+    width, height = image.size
+    return (width, width) if kind in HALF_HEIGHT_LEGACY_TEXTURES and height * 2 == width else (width, height)
+
+
+def legacy_layout(kind, image):
+    return kind in RESHAPED_LEGACY_TEXTURES and image.height * 2 == image.width
+
+
 def model_parts(kind, nbt, texture, *, layer=None, baseline=24.016, ground=False,
                 scale=1.0, outer_y_rotation=0.0, angle=0.0):
     layer = layer or model_layer(kind, nbt)
@@ -145,7 +157,7 @@ def model_parts(kind, nbt, texture, *, layer=None, baseline=24.016, ground=False
     if root is None:
         return []
 
-    width, height = image.size if image is not None else (1, 1)
+    width, height = uv_size(kind, image) if image is not None else (1, 1)
     alpha = image.getchannel("A") if image is not None else None
     turn = math.radians(outer_y_rotation)
     cosine, sine = math.cos(turn), math.sin(turn)

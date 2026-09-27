@@ -121,7 +121,16 @@ def _mob_texture(kind, nbt, defaults):
         candidates.append(stem)
     if _is_baby(nbt):
         candidates.extend(default + "_baby" for default in defaults)
-    return _asset(*candidates, *defaults, "block/structure_block", "block/red_wool")
+    names = (name for candidate in (*candidates, *defaults) for name in _release_names(candidate))
+    return _asset(*names, "block/structure_block", "block/red_wool")
+
+
+def _release_names(stem):
+    parts = stem.split("/")
+    if len(parts) < 3:
+        return (stem,)
+    folder, group, name = "/".join(parts[:-1]), parts[-2], parts[-1]
+    return stem, f"{folder}/{name.removeprefix(group + '_')}", "/".join((*parts[:-2], name))
 
 
 def dummy_parts(nbt, *, kind, family, textures, scale=1.0):

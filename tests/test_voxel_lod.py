@@ -89,3 +89,19 @@ def test_reduction_is_additive_across_sections():
     np.testing.assert_array_equal(actual[..., [0, 5, 10]], expected[..., [0, 5, 10]])
     np.testing.assert_allclose(actual, expected, rtol=4e-6)
     np.testing.assert_array_equal(voxel_colors(actual), voxel_colors(expected))
+
+
+
+def test_emit_bounds_uses_halo_for_culling_without_emitting_neighbor_faces():
+    import numpy as np
+    from structura_render.voxel_lod import block_voxels, voxel_mesh
+
+    blocks = np.zeros((6, 6, 6), np.int32)
+    palette = np.array(((80, 100, 120, 255),), np.uint8)
+    bounds = ((1, 1, 1), (2, 2, 2))
+    assert len(voxel_mesh(block_voxels(blocks, palette, factor=2), 2, emit_bounds=bounds).triangles) == 0
+    blocks[:2] = -1
+    mesh = voxel_mesh(block_voxels(blocks, palette, factor=2), 2, emit_bounds=bounds)
+    assert len(mesh.triangles) == 2
+    assert np.all(mesh.points[:, 0] == 2)
+    assert np.all(mesh.points[:, 1:] >= 2) and np.all(mesh.points[:, 1:] <= 4)

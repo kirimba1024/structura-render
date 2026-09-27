@@ -45,11 +45,15 @@ def voxel_colors(samples):
     return np.rint(rgba.clip(0, 1) * 255).astype(np.uint8)
 
 
-def voxel_mesh(samples, step):
+def voxel_mesh(samples, step, *, emit_bounds=None):
     if not np.isfinite(step) or step <= 0:
         raise ValueError('Voxel size must be finite and positive')
     colors = voxel_colors(samples)
     active = colors[..., 3] > 0
+    if emit_bounds is not None:
+        allowed = np.zeros(active.shape, bool)
+        allowed[tuple(slice(lo, hi) for lo, hi in zip(*emit_bounds))] = True
+        active &= allowed
     opaque = colors[..., 3] == 255
     vertices, faces, shades = [], [], []
     count = 0

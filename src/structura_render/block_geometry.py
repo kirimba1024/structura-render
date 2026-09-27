@@ -226,10 +226,12 @@ class BlockMasks:
     wall_family: np.ndarray
     water: np.ndarray
     lava: np.ndarray
+    shade: np.ndarray
 
 
 def block_masks(state, names, properties):
     occluder = np.zeros_like(state, dtype=bool)
+    shade = np.zeros_like(state, dtype=bool)
     fence_family = np.zeros_like(state, dtype=bool)
     pane_family = np.zeros_like(state, dtype=bool)
     wall_family = np.zeros_like(state, dtype=bool)
@@ -238,6 +240,8 @@ def block_masks(state, names, properties):
     for index, name in names.items():
         if is_occluder(name, properties.get(index, {})):
             occluder |= state == index
+        if name.endswith("_leaves"):
+            shade |= state == index
         if is_fence(name):
             fence_family |= state == index
         if is_pane(name):
@@ -261,7 +265,7 @@ def block_masks(state, names, properties):
         elif name == "minecraft:lava":
             lava |= state == index
     return BlockMasks(occluder, fence_connectable, pane_connectable,
-                      wall_connectable, bars_connectable, wall_family, water, lava)
+                      wall_connectable, bars_connectable, wall_family, water, lava, shade | occluder)
 
 
 def _emit_cross(props, own, face_ids, buffer):

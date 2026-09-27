@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Read every frame of animated block textures in their `.mcmeta` order and timing; fluid texture
+  settings live in `entity_shapes.FLUID_TEXTURES`.
+- Count leaves in ambient occlusion like Minecraft without letting them hide neighbor faces.
 - Draw map icons from the model at whole-texel scale with a thin silhouette outline; fish,
   horses, parrots and camels use profiles, squids spread their tentacles.
 - Find mob skins under their pre-26 names, so 1.21 worlds no longer show structure-block

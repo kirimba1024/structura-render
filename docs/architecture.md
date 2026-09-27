@@ -142,7 +142,7 @@ Invalid output extensions are rejected before reading the source.
 |---|---|
 | `shape_geometry` | Box descriptors, face orientation, model UV unfolding and transformations. |
 | `signs` | Sign text parsing, glyph placement, boards and hanging attachments. |
-| `entity_shapes` | Factories for special blocks such as chests, beds, banners, pots and fluids. |
+| `entity_shapes` | Factories for special blocks such as chests, beds, banners, pots and fluids; fluid texture settings and their animation frames. |
 | `entity_state` | Entity NBT values, orientation, age and placement coordinates. |
 | `mob_catalog` | Supported mob families, texture candidates and approximate rig specifications. |
 | `entity_mobs` | Skin selection, including pre-26 texture names, and source-model/fallback construction for mobs. |
@@ -178,8 +178,9 @@ module while continuing to exercise the existing public entry points.
 
 `shading.py` prepares two independent uint8 vertex channels: local corner AO and
 fixed face-direction brightness. It reads no saved Minecraft light and runs no
-propagation. Unit cube faces sample an adjacent occluder stencil; partial faces
-use neutral AO. The AO corner values choose the quad diagonal without changing
+propagation. Unit cube faces sample an adjacent stencil of occluders and leaves
+(`BlockMasks.shade`), as Minecraft's AO does; leaves still never hide faces. Partial
+faces use neutral AO. The AO corner values choose the quad diagonal without changing
 UVs or winding. Packets keep appearance channels separate from albedo and alpha,
 so editor controls update vertex colors without rebuilding geometry or darkening
 LOD input colors repeatedly. VTK editor actors disable dynamic lighting.

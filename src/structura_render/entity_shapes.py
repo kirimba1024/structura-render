@@ -27,6 +27,7 @@ from .shape_geometry import (
     turned_box as turned_box,
     unwrap as unwrap,
 )
+from .textures import WATER_TINT
 from .signs import (
     SIGN_LINES as SIGN_LINES,
     TEXT_DEPTH as TEXT_DEPTH,
@@ -45,6 +46,20 @@ INVISIBLE = {
     "minecraft:barrier", "minecraft:light", "minecraft:moving_piston",
     "minecraft:structure_void",
 }
+
+FLUID_TEXTURES = {
+    "water": ("block/water_still", WATER_TINT, 170),
+    "lava": ("block/lava_still", None, 235),
+}
+
+
+def fluid_animations(bank):
+    animations = {}
+    for fluid, (stem, tint, alpha) in FLUID_TEXTURES.items():
+        frames = bank.read_asset_frames(stem, tint, alpha)
+        if frames is not None:
+            animations[fluid] = frames
+    return animations
 
 
 def colored(base, suffix):
@@ -358,11 +373,6 @@ def entity_shape(name, props, content=None):
     if name in ("minecraft:water", "minecraft:lava", "minecraft:bubble_column"):
         level = int(props.get("level", 0))
         height = 1 if level == 0 or level >= 8 else (8 - level) / 9
-        water = name != "minecraft:lava"
-        return [box(
-            (0, 0, 0), (1, height, 1),
-            "block/water_still" if water else "block/lava_still",
-            tint=(63, 118, 228) if water else None,
-            alpha=170 if water else 235,
-        )]
+        stem, tint, alpha = FLUID_TEXTURES["lava" if name == "minecraft:lava" else "water"]
+        return [box((0, 0, 0), (1, height, 1), stem, tint=tint, alpha=alpha)]
     return None

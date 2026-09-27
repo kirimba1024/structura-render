@@ -223,7 +223,7 @@ def _build_textured_geometry(src, solid, state, index_names, index_props, bank, 
     models = prepare_models(src, state, index_names, index_props, bank, atlas)
     masks = block_masks(state, index_names, index_props)
     image, rects = atlas.build(max_size=max_atlas_size) if atlas.images else (None, [])
-    buffer = QuadBuffer(image, rects, emit_bounds, emit_mask, masks.occluder)
+    buffer = QuadBuffer(image, rects, emit_bounds, emit_mask, masks.shade)
     _emit_models(models.blocks, state, index_names, masks.occluder, buffer)
     _emit_specials(models, index_names, masks, buffer)
     emit_fallback_blocks(models.fallback, state, index_names, index_props, masks, buffer)

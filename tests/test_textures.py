@@ -52,3 +52,31 @@ def test_invalid_animation_metadata_fails_explicitly(tmp_path, animation):
     path.with_suffix('.png.mcmeta').write_text(json.dumps({'animation': animation}))
     with pytest.raises(ValueError, match='animation'):
         TextureBank._open(path)
+
+
+def test_animated_asset_frames_follow_the_declared_order_and_timing(tmp_path):
+    import numpy as np
+    from PIL import Image
+    from structura_render.assets import AssetContext
+    path = tmp_path / 'textures/block/flow.png'
+    path.parent.mkdir(parents=True)
+    image = Image.new('RGBA', (4, 12))
+    for index, color in enumerate(((255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255))):
+        image.paste(color, (0, index * 4, 4, index * 4 + 4))
+    image.save(path)
+    path.with_suffix('.png.mcmeta').write_text('{"animation":{"frametime":2,"frames":[2,0,1,0]}}')
+    with AssetContext(tmp_path).activate() as context:
+        bank = TextureBank(context)
+        frames, seconds = bank.read_asset_frames('block/flow', (255, 255, 255), 128)
+        still = np.asarray(bank.read_asset('block/flow', (255, 255, 255), None, 128))
+    assert seconds == .1 and [tuple(frame[0, 0, :3]) for frame in frames] == [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 0, 0)]
+    assert np.array_equal(frames[0], still) and (frames[..., 3] == 128).all()
+
+
+def test_mixed_frame_times_expand_to_ticks(tmp_path):
+    from PIL import Image
+    path = tmp_path / 'mixed.png'
+    Image.new('RGBA', (2, 4), (9, 9, 9, 255)).save(path)
+    path.with_suffix('.png.mcmeta').write_text('{"animation":{"frames":[{"index":1,"time":3},0]}}')
+    image, boxes, seconds = TextureBank._animation(path)
+    assert seconds == .05 and boxes == ((0, 2, 2, 4),) * 3 + ((0, 0, 2, 2),)

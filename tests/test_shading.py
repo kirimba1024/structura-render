@@ -77,3 +77,15 @@ def test_inward_boundary_face_samples_the_layer_it_faces():
     assert list(values) == [217, 255, 255, 217]
     outward = face_shading(np.asarray([[1, 1, 1]]), CUBE_CORNERS[CUBE_FACES['down']], occluder)[:, 0]
     assert (outward == 255).all()
+
+
+def test_leaves_darken_corners_without_hiding_neighbor_faces():
+    from structura_render.block_geometry import block_masks
+    state = np.zeros((3, 3, 3), np.int32)
+    state[1, 1, 1] = 1
+    state[:, 2, :] = 2
+    masks = block_masks(state, {0: 'minecraft:air', 1: 'minecraft:birch_log', 2: 'minecraft:birch_leaves'}, {})
+    assert masks.shade[1, 2, 1] and not masks.occluder[1, 2, 1]
+    faces = [face_shading(np.asarray([[1, 1, 1]], np.float32), CUBE_CORNERS[CUBE_FACES['north']], mask)[:, 0]
+             for mask in (masks.occluder, masks.shade)]
+    assert faces[0].min() == 255 and faces[1].min() < 255

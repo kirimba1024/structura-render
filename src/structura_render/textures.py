@@ -36,6 +36,33 @@ def _tint(image, color):
     return Image.fromarray(np.clip(array * factor, 0, 255).astype(np.uint8))
 
 
+def _prepared(image, crop, tint, alpha):
+    if image is not None and crop:
+        image = image.crop(crop)
+    if image is not None and tint:
+        image = _tint(image, tint)
+    if image is not None and alpha < 255:
+        values = np.asarray(image).copy()
+        values[..., 3] = values[..., 3].astype(np.uint16) * alpha // 255
+        image = Image.fromarray(values)
+    return image
+
+
+def _positive(value, default):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+
+
+def _animation_steps(frames, frametime, count):
+    default = _positive(frametime, 1)
+    steps = []
+    for entry in frames:
+        index = entry.get("index") if isinstance(entry, dict) else entry
+        time = _positive(entry.get("time"), default) if isinstance(entry, dict) else default
+        if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < count:
+            steps.append((index, time))
+    return steps
+
+
 def _readable_water(image):
     image = _tint(image, WATER_TINT)
     array = np.asarray(image).copy()
@@ -119,21 +146,34 @@ class TextureBank:
                     and stem.endswith("_pottery_pattern")):
                 path = self.context.path("textures", "entity/decorated_pot/decorated_pot_side", ".png")
             image = self._open(path)
-        if image is not None and crop:
-            image = image.crop(crop)
-        if image is not None and tint:
-            image = _tint(image, tint)
-        if image is not None and alpha < 255:
-            values = np.asarray(image).copy()
-            values[..., 3] = values[..., 3].astype(np.uint16) * alpha // 255
-            image = Image.fromarray(values)
+        image = _prepared(image, crop, tint, alpha)
         self._asset_cache[key] = image
         if image is None:
             report_issue("missing texture", stem)
         return image
 
+    def read_asset_frames(self, stem: str, tint: Optional[Tuple[int, int, int]] = None,
+                          alpha: int = 255) -> Optional[Tuple[np.ndarray, float]]:
+        key = ("frames", stem, tint, alpha)
+        if key not in self._asset_cache:
+            source = self._animation(self.context.path("textures", stem, ".png"))
+            frames = None
+            if source is not None and len(source[1]) > 1:
+                image, boxes, seconds = source
+                frames = np.stack([np.asarray(_prepared(image.crop(box), None, tint, alpha)) for box in boxes]), seconds
+            self._asset_cache[key] = frames
+        return self._asset_cache[key]
+
     @staticmethod
     def _open(path):
+        source = TextureBank._animation(path)
+        if source is None:
+            return None
+        image, boxes, _ = source
+        return image.crop(boxes[0]) if boxes else image
+
+    @staticmethod
+    def _animation(path):
         if not path.exists():
             return None
         with Image.open(path) as source:
@@ -145,26 +185,33 @@ class TextureBank:
         if not isinstance(metadata, dict):
             raise ValueError(f"invalid texture metadata: {metadata_path}")
         animation = metadata.get("animation")
-        if animation is not None and "entity" not in path.parts:
-            if not isinstance(animation, dict):
-                raise ValueError(f"invalid texture animation: {metadata_path}")
-            default = min(image.size)
-            width = animation.get("width", image.width if "height" in animation else default)
-            height = animation.get("height", image.height if "width" in animation else default)
-            if any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in (width, height)):
-                raise ValueError(f"invalid animation frame size: {metadata_path}")
-            if image.width % width or image.height % height:
-                raise ValueError(f"animation frame size does not divide texture: {metadata_path}")
-            frames = animation.get("frames", [])
-            if not isinstance(frames, list):
-                raise ValueError(f"invalid animation frames: {metadata_path}")
-            first = frames[0] if frames else 0
-            index = first.get("index") if isinstance(first, dict) else first
-            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < image.width // width * (image.height // height):
-                raise ValueError(f"invalid animation frame index: {metadata_path}")
-            row, column = divmod(index, image.width // width)
-            image = image.crop((column * width, row * height, (column + 1) * width, (row + 1) * height))
-        return image
+        if animation is None or "entity" in path.parts:
+            return image, (), 0.0
+        if not isinstance(animation, dict):
+            raise ValueError(f"invalid texture animation: {metadata_path}")
+        default = min(image.size)
+        width = animation.get("width", image.width if "height" in animation else default)
+        height = animation.get("height", image.height if "width" in animation else default)
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in (width, height)):
+            raise ValueError(f"invalid animation frame size: {metadata_path}")
+        if image.width % width or image.height % height:
+            raise ValueError(f"animation frame size does not divide texture: {metadata_path}")
+        frames = animation.get("frames", [])
+        if not isinstance(frames, list):
+            raise ValueError(f"invalid animation frames: {metadata_path}")
+        columns, count = image.width // width, image.width // width * (image.height // height)
+        first = frames[0] if frames else 0
+        index = first.get("index") if isinstance(first, dict) else first
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < count:
+            raise ValueError(f"invalid animation frame index: {metadata_path}")
+        steps = _animation_steps(frames or list(range(count)), animation.get("frametime", 1), count)
+        times = {time for _, time in steps}
+        uniform = len(times) == 1
+        seconds = times.pop() / 20 if uniform else 1 / 20
+        indices = [index for index, time in steps for _ in range(1 if uniform else time)]
+        boxes = tuple((index % columns * width, index // columns * height,
+                       (index % columns + 1) * width, (index // columns + 1) * height) for index in indices)
+        return image, boxes, seconds
 
     @staticmethod
     def _effect(stem):
